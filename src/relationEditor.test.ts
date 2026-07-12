@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { initialFamily } from './data'
+import { sampleFamily as initialFamily } from './data'
 import { addRelatedPerson, anchorIdsFor, ensureSpouseCoParents, genderLabel, resolvePersonOverlaps, suggestedPersonPlacement } from './relationEditor'
 import { calculateKinship } from './kinship'
 import type { Person } from './types'

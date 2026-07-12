@@ -2,6 +2,73 @@ import type { FamilyData } from './types'
 
 export const initialFamily: FamilyData = {
   people: [
+    { id: 'me', name: '我', gender: 'male', birthYear: 2000, generation: 2, x: 626, y: 368, note: '默认主视角' },
+  ],
+  parents: [],
+  spouses: [],
+}
+
+export const showcaseFamily: FamilyData = {
+  people: [
+    { id: 'ggf', name: '王守仁', gender: 'male', birthYear: 1915, generation: 0, x: 260, y: 8, note: '曾祖父，祖籍泉州' },
+    { id: 'ggm', name: '陈月琴', gender: 'female', birthYear: 1919, generation: 0, x: 430, y: 8 },
+    { id: 'mggf', name: '林清源', gender: 'male', birthYear: 1917, generation: 0, x: 850, y: 8 },
+    { id: 'mggm', name: '黄瑞香', gender: 'female', birthYear: 1921, generation: 0, x: 1020, y: 8 },
+    { id: 'pgf', name: '王志诚', gender: 'male', birthYear: 1944, generation: 1, x: 260, y: 124 },
+    { id: 'pgm', name: '吴玉兰', gender: 'female', birthYear: 1947, generation: 1, x: 430, y: 124 },
+    { id: 'mgf', name: '林建中', gender: 'male', birthYear: 1943, generation: 1, x: 850, y: 124 },
+    { id: 'mgm', name: '苏美云', gender: 'female', birthYear: 1948, generation: 1, x: 1020, y: 124 },
+    { id: 'uncle', name: '王国安', gender: 'male', birthYear: 1968, generation: 2, x: 80, y: 240 },
+    { id: 'uncle-wife', name: '许慧玲', gender: 'female', birthYear: 1970, generation: 2, x: 250, y: 240 },
+    { id: 'father', name: '王国平', gender: 'male', birthYear: 1972, generation: 2, x: 500, y: 240 },
+    { id: 'mother', name: '林秀英', gender: 'female', birthYear: 1974, generation: 2, x: 670, y: 240 },
+    { id: 'aunt', name: '林秀芳', gender: 'female', birthYear: 1977, generation: 2, x: 950, y: 240 },
+    { id: 'aunt-husband', name: '周明德', gender: 'male', birthYear: 1975, generation: 2, x: 1120, y: 240 },
+    { id: 'cousin', name: '王晨宇', gender: 'male', birthYear: 1994, generation: 3, x: 150, y: 356 },
+    { id: 'sister', name: '王晓晴', gender: 'female', birthYear: 1997, generation: 3, x: 390, y: 356 },
+    { id: 'me', name: '王晓明', gender: 'male', birthYear: 1999, generation: 3, x: 600, y: 356, note: '七代示例的主视角' },
+    { id: 'wife', name: '苏雅婷', gender: 'female', birthYear: 2000, generation: 3, x: 770, y: 356 },
+    { id: 'maternal-cousin', name: '周可欣', gender: 'female', birthYear: 2002, generation: 3, x: 1050, y: 356 },
+    { id: 'nephew', name: '陈一航', gender: 'male', birthYear: 2022, generation: 4, x: 370, y: 472 },
+    { id: 'son', name: '王予安', gender: 'male', birthYear: 2025, generation: 4, x: 580, y: 472 },
+    { id: 'daughter', name: '王予宁', gender: 'female', birthYear: 2028, generation: 4, x: 780, y: 472 },
+    { id: 'grandson', name: '王亦辰', gender: 'male', birthYear: 2052, generation: 5, x: 550, y: 588 },
+    { id: 'grandson-wife', name: '李知夏', gender: 'female', birthYear: 2053, generation: 5, x: 720, y: 588 },
+    { id: 'granddaughter', name: '王亦然', gender: 'female', birthYear: 2055, generation: 5, x: 930, y: 588 },
+    { id: 'great-grandson', name: '王星河', gender: 'male', birthYear: 2078, generation: 6, x: 610, y: 704 },
+    { id: 'great-granddaughter', name: '王星遥', gender: 'female', birthYear: 2080, generation: 6, x: 810, y: 704 },
+  ],
+  parents: [
+    { parentId: 'ggf', childId: 'pgf' }, { parentId: 'ggm', childId: 'pgf' },
+    { parentId: 'mggf', childId: 'mgf' }, { parentId: 'mggm', childId: 'mgf' },
+    { parentId: 'pgf', childId: 'uncle' }, { parentId: 'pgm', childId: 'uncle' },
+    { parentId: 'pgf', childId: 'father' }, { parentId: 'pgm', childId: 'father' },
+    { parentId: 'mgf', childId: 'mother' }, { parentId: 'mgm', childId: 'mother' },
+    { parentId: 'mgf', childId: 'aunt' }, { parentId: 'mgm', childId: 'aunt' },
+    { parentId: 'uncle', childId: 'cousin' }, { parentId: 'uncle-wife', childId: 'cousin' },
+    { parentId: 'father', childId: 'sister' }, { parentId: 'mother', childId: 'sister' },
+    { parentId: 'father', childId: 'me' }, { parentId: 'mother', childId: 'me' },
+    { parentId: 'aunt', childId: 'maternal-cousin' }, { parentId: 'aunt-husband', childId: 'maternal-cousin' },
+    { parentId: 'sister', childId: 'nephew' },
+    { parentId: 'me', childId: 'son' }, { parentId: 'wife', childId: 'son' },
+    { parentId: 'me', childId: 'daughter' }, { parentId: 'wife', childId: 'daughter' },
+    { parentId: 'son', childId: 'grandson' }, { parentId: 'daughter', childId: 'granddaughter' },
+    { parentId: 'grandson', childId: 'great-grandson' }, { parentId: 'grandson-wife', childId: 'great-grandson' },
+    { parentId: 'grandson', childId: 'great-granddaughter' }, { parentId: 'grandson-wife', childId: 'great-granddaughter' },
+  ],
+  spouses: [
+    { personAId: 'ggf', personBId: 'ggm' }, { personAId: 'mggf', personBId: 'mggm' },
+    { personAId: 'pgf', personBId: 'pgm' }, { personAId: 'mgf', personBId: 'mgm' },
+    { personAId: 'uncle', personBId: 'uncle-wife' }, { personAId: 'father', personBId: 'mother' },
+    { personAId: 'aunt', personBId: 'aunt-husband' }, { personAId: 'me', personBId: 'wife' },
+    { personAId: 'grandson', personBId: 'grandson-wife' },
+  ],
+  customTerms: [{ viewerId: 'me', targetId: 'aunt', label: '姨妈' }],
+}
+
+// Rich fixture used by relationship-engine tests. It is not shown to new users.
+export const sampleFamily: FamilyData = {
+  people: [
     { id: 'p-gf', name: '王德山', gender: 'male', birthYear: 1942, generation: 0, x: 220, y: 80, note: '祖籍泉州南安' },
     { id: 'p-gm', name: '陈秀莲', gender: 'female', birthYear: 1946, generation: 0, x: 420, y: 80 },
     { id: 'm-gf', name: '林宗海', gender: 'male', birthYear: 1940, generation: 0, x: 900, y: 80 },

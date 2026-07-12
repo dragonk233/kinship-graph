@@ -145,3 +145,19 @@ export async function saveFamilyData(data: FamilyData): Promise<void> {
     database.close()
   }
 }
+
+export async function clearFamilyData(): Promise<void> {
+  if (!('indexedDB' in globalThis)) throw new Error('当前浏览器不支持 IndexedDB')
+  const database = await openDatabase()
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const transaction = database.transaction(STORE_NAME, 'readwrite')
+      transaction.objectStore(STORE_NAME).delete(CURRENT_FAMILY_KEY)
+      transaction.oncomplete = () => resolve()
+      transaction.onerror = () => reject(transaction.error ?? new Error('无法清空本地家谱'))
+      transaction.onabort = () => reject(transaction.error ?? new Error('清空本地家谱已取消'))
+    })
+  } finally {
+    database.close()
+  }
+}

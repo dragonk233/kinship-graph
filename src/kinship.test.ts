@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { initialFamily } from './data'
+import { sampleFamily as initialFamily } from './data'
 import { calculateKinship } from './kinship'
 
 describe('亲属关系推导', () => {

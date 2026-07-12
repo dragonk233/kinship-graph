@@ -1,6 +1,6 @@
 import { FormEvent, PointerEvent, useCallback, useEffect, useId, useMemo, useRef, useState, WheelEvent } from 'react'
-import { initialFamily } from './data'
-import { loadFamilyData, parseFamilyBackup, saveFamilyData, serializeFamilyBackup, serializeFamilyMarkdown } from './familyStorage'
+import { initialFamily, showcaseFamily } from './data'
+import { clearFamilyData, loadFamilyData, parseFamilyBackup, saveFamilyData, serializeFamilyBackup, serializeFamilyMarkdown } from './familyStorage'
 import { calculateKinship } from './kinship'
 import { hasMinnanRecording, speakMinnan, stopMinnanSpeech } from './minnanSpeech'
 import { addRelatedPerson, anchorIdsFor, ensureSpouseCoParents, genderLabel, relationOptions, relationPreview, resolvePersonOverlaps, suggestedPersonPlacement } from './relationEditor'
@@ -9,6 +9,8 @@ import type { FamilyData, Gender, Person } from './types'
 import { formatZodiac } from './zodiac'
 import { birthYearFromDate, formatLunarBirthday, formatSolarBirthday, isBirthDate } from './lunar'
 import { inspectFamilyHealth } from './familyHealth'
+import { legalFilterOptions, matchesLegalFilter } from './legalKinship'
+import type { LegalFilterId } from './legalKinship'
 
 const HOME_ID = 'me'
 const CARD_W = 148
@@ -122,7 +124,21 @@ function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer, onAdd }: {
   const [camera, setCamera] = useState({ x: 0, y: 0, scale: .72 })
   const [dragging, setDragging] = useState(false)
   const [generationView, setGenerationView] = useState<number | null>(null)
+  const [legalFilter, setLegalFilter] = useState<LegalFilterId | null>(null)
+  const [filterMenuOpen, setFilterMenuOpen] = useState(false)
+  const filterRef = useRef<HTMLDivElement>(null)
   const people = useMemo(() => new Map(data.people.map((p) => [p.id, p])), [data.people])
+  const matchedIds = useMemo(() => new Set(legalFilter ? data.people.filter((person) => matchesLegalFilter(data, viewerId, person.id, legalFilter)).map((person) => person.id) : []), [data, viewerId, legalFilter])
+  const activeLegalOption = legalFilterOptions.find((option) => option.id === legalFilter)
+
+  useEffect(() => {
+    if (!filterMenuOpen) return
+    const closeOutside = (event: MouseEvent) => { if (!filterRef.current?.contains(event.target as Node)) setFilterMenuOpen(false) }
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setFilterMenuOpen(false) }
+    document.addEventListener('mousedown', closeOutside)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => { document.removeEventListener('mousedown', closeOutside); document.removeEventListener('keydown', closeOnEscape) }
+  }, [filterMenuOpen])
 
   const fitView = useCallback(() => {
     const viewport = viewportRef.current
@@ -241,9 +257,10 @@ function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer, onAdd }: {
         const result = calculateKinship(data, viewerId, person.id)
         const isViewer = person.id === viewerId
         const isSelected = person.id === selectedId
+        const filteredOut = legalFilter !== null && !matchedIds.has(person.id) && !isViewer
         return <button
           key={person.id}
-          className={`person-node ${isViewer ? 'viewer' : ''} ${isSelected ? 'selected' : ''} ${generationView !== null && person.generation !== generationView ? 'generation-faded' : ''} ${generationView === person.generation ? 'generation-highlighted' : ''}`}
+          className={`person-node ${isViewer ? 'viewer' : ''} ${isSelected ? 'selected' : ''} ${generationView !== null && person.generation !== generationView ? 'generation-faded' : ''} ${generationView === person.generation ? 'generation-highlighted' : ''} ${filteredOut ? 'legal-filtered-out' : ''} ${legalFilter && matchedIds.has(person.id) ? 'legal-filter-match' : ''}`}
           style={{ left: person.x, top: person.y }}
           onClick={() => onSelect(person.id)}
           onDoubleClick={() => onMakeViewer(person.id)}
@@ -255,6 +272,28 @@ function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer, onAdd }: {
         </button>
       })}
     </div>
+    <div className="quick-filter" ref={filterRef}>
+      <button className={`quick-filter-trigger ${legalFilter ? 'active' : ''}`} type="button" aria-haspopup="menu" aria-expanded={filterMenuOpen} onClick={() => setFilterMenuOpen((current) => !current)}>
+        <span>{activeLegalOption ? activeLegalOption.label : '快速筛选'}</span>
+        {legalFilter && <em>{matchedIds.size}</em>}
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
+      </button>
+      {filterMenuOpen && <div className="quick-filter-menu" role="menu">
+        <div className="quick-filter-category" role="none">
+          <button type="button" role="menuitem" aria-haspopup="menu"><span><b>法律</b><small>以 {data.people.find((person) => person.id === viewerId)?.name} 为中心判定</small></span><i>›</i></button>
+          <div className="legal-filter-submenu" role="menu" aria-label="法律亲属范围">
+            <div className="filter-menu-heading"><span>法律亲属范围</span><small>依当前主视角计算</small></div>
+            {legalFilterOptions.map((option) => <button key={option.id} type="button" role="menuitemradio" aria-checked={legalFilter === option.id} className={legalFilter === option.id ? 'active' : ''} onClick={() => { setLegalFilter(option.id); setGenerationView(null); setFilterMenuOpen(false) }}>
+              <span><b>{option.label}</b><small>{option.description}</small></span><i>{legalFilter === option.id ? '✓' : ''}</i>
+            </button>)}
+            <div className="filter-data-note">“家庭成员”需要共同生活资料，暂不自动判定
+            </div>
+          </div>
+        </div>
+        {legalFilter && <button className="clear-quick-filter" type="button" role="menuitem" onClick={() => { setLegalFilter(null); setFilterMenuOpen(false) }}>显示全部人物</button>}
+      </div>}
+    </div>
+    {activeLegalOption && <div className="active-filter-note" role="status"><span>法律</span><strong>{activeLegalOption.label}</strong><small>命中 {matchedIds.size} 人</small><button type="button" onClick={() => setLegalFilter(null)} aria-label="清除法律筛选">×</button></div>}
     <div className="generation-key" aria-label="按辈分查看人物">
       <button className={`generation-key-title ${generationView === null ? 'active' : ''}`} type="button" onClick={() => showGeneration(null)} aria-pressed={generationView === null} title="显示全部人物">辈分</button>
       {['祖辈', '父辈', '同辈', '晚辈'].map((label, generation) => <button
@@ -281,7 +320,7 @@ function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer, onAdd }: {
 function App() {
   const [data, setData] = useState(initialFamily)
   const [viewerId, setViewerId] = useState(HOME_ID)
-  const [selectedId, setSelectedId] = useState('father')
+  const [selectedId, setSelectedId] = useState(HOME_ID)
   const [query, setQuery] = useState('')
   const [showAdd, setShowAdd] = useState(false)
   const [showEdit, setShowEdit] = useState(false)
@@ -289,8 +328,10 @@ function App() {
   const [showRelations, setShowRelations] = useState(false)
   const [showPair, setShowPair] = useState(false)
   const [showHealth, setShowHealth] = useState(false)
+  const [showReset, setShowReset] = useState(false)
+  const [showShowcase, setShowShowcase] = useState(false)
   const [pairAId, setPairAId] = useState(HOME_ID)
-  const [pairBId, setPairBId] = useState('father')
+  const [pairBId, setPairBId] = useState(HOME_ID)
   const [relationKind, setRelationKind] = useState<RelationKind>('parent')
   const [relationAnchorId, setRelationAnchorId] = useState('')
   const [directRelation, setDirectRelation] = useState<DirectRelation>('child')
@@ -552,6 +593,39 @@ function App() {
     }
   }
 
+  const resetFamily = async () => {
+    try {
+      await clearFamilyData()
+      historyRef.current = []
+      setCanUndo(false)
+      setData(initialFamily)
+      setViewerId(HOME_ID)
+      setSelectedId(HOME_ID)
+      setQuery('')
+      setPairAId(HOME_ID)
+      setPairBId(HOME_ID)
+      setShowReset(false)
+      setToast('本地家谱已清空，可以重新配置')
+      window.setTimeout(() => setToast(''), 2600)
+    } catch (error) {
+      setShowReset(false)
+      setToast(error instanceof Error ? error.message : '无法清空本地家谱')
+      window.setTimeout(() => setToast(''), 2800)
+    }
+  }
+
+  const loadShowcase = () => {
+    updateData(() => showcaseFamily)
+    setViewerId(HOME_ID)
+    setSelectedId(HOME_ID)
+    setQuery('')
+    setPairAId(HOME_ID)
+    setPairBId('father')
+    setShowShowcase(false)
+    setToast(`已生成七代示例家谱，共 ${showcaseFamily.people.length} 位人物`)
+    window.setTimeout(() => setToast(''), 2800)
+  }
+
   if (!storageReady) {
     return <div className="app-loading" role="status" aria-live="polite" aria-label="正在读取本地档案">
       <span className="brand-seal">亲</span>
@@ -573,6 +647,8 @@ function App() {
         <button className="backup-button" onClick={() => { setPairAId(viewerId); setPairBId(selectedId === viewerId ? data.people.find((person) => person.id !== viewerId)?.id ?? viewerId : selectedId); setShowPair(true) }}>两人关系</button>
         <button className={`backup-button ${healthIssues.length ? 'has-issues' : ''}`} onClick={() => setShowHealth(true)}>检查{healthIssues.length ? ` · ${healthIssues.length}` : ''}</button>
         <button className="backup-button" onClick={() => setShowBackup(true)}>备份</button>
+        <button className="showcase-button" onClick={() => setShowShowcase(true)}><Icon name="plus"/>生成示例</button>
+        <button className="reset-button" onClick={() => setShowReset(true)}><Icon name="trash"/>清空</button>
       </div>
     </header>
 
@@ -680,6 +756,16 @@ function App() {
       <div className="danger-mark"><Icon name="trash"/></div>
       <div><span className="eyebrow">删除人物</span><h2 id="delete-person-title">确认删除 {deleteTarget.name}？</h2><p>人物资料及其父母、子女、配偶关系将一并删除，此操作无法撤销。</p></div>
       <div className="modal-actions"><button type="button" onClick={() => setDeleteTargetId(null)}>取消</button><button className="confirm-delete-button" type="button" onClick={deletePerson}>确认删除</button></div>
+    </section></div>}
+    {showReset && <div className="modal-backdrop" onMouseDown={() => setShowReset(false)}><section className="confirm-modal" role="alertdialog" aria-modal="true" aria-labelledby="reset-family-title" onMouseDown={(event) => event.stopPropagation()}>
+      <div className="danger-mark"><Icon name="trash"/></div>
+      <div><span className="eyebrow">清空本地数据</span><h2 id="reset-family-title">确认清空整个亲族图谱？</h2><p>当前浏览器中保存的所有人物、关系和自定义称呼都会被删除，只保留一个空白的“我”供你重新开始配置。此操作无法撤销，建议先导出备份。</p></div>
+      <div className="modal-actions"><button type="button" onClick={() => setShowReset(false)}>取消</button><button className="confirm-delete-button" type="button" onClick={() => void resetFamily()}>确认清空</button></div>
+    </section></div>}
+    {showShowcase && <div className="modal-backdrop" onMouseDown={() => setShowShowcase(false)}><section className="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="showcase-title" onMouseDown={(event) => event.stopPropagation()}>
+      <div className="showcase-mark"><Icon name="person"/></div>
+      <div><span className="eyebrow">效果预览</span><h2 id="showcase-title">生成七代示例家谱？</h2><p>示例以“我”为中心，包含上三代、下三代，以及配偶、兄弟姐妹和旁系分支，共 {showcaseFamily.people.length} 位人物。它会替换当前画布并保存到本地，建议先备份现有家谱。</p></div>
+      <div className="modal-actions"><button type="button" onClick={() => setShowShowcase(false)}>取消</button><button className="primary-button" type="button" onClick={loadShowcase}>生成示例</button></div>
     </section></div>}
     {showPair && <div className="modal-backdrop" onMouseDown={() => setShowPair(false)}><section className="pair-modal" role="dialog" aria-modal="true" aria-labelledby="pair-title" onMouseDown={(event) => event.stopPropagation()}>
       <div><span className="eyebrow">双向称呼查询</span><h2 id="pair-title">两个人是什么关系</h2><p>同时查看双方各自应该如何称呼对方。</p></div>

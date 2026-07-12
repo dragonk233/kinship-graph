@@ -84,7 +84,34 @@ export function addRelatedPerson(data: FamilyData, viewerId: string, person: Per
     else if (kind === 'custom') addDirect(anchorId, direct)
     else addDirect(anchorId, 'child')
   }
-  return next
+  return ensureSpouseCoParents(next)
+}
+
+/**
+ * In this family model a person with one recorded spouse shares their recorded
+ * children with that spouse. Besides keeping new entries complete, this also
+ * repairs older saved data that only attached a child to the person selected
+ * when the child was created.
+ *
+ * Multiple spouses are deliberately left untouched because the other parent
+ * cannot be inferred safely in that case.
+ */
+export function ensureSpouseCoParents(data: FamilyData): FamilyData {
+  const spousesByPerson = new Map<string, string[]>()
+  data.spouses.forEach(({ personAId, personBId }) => {
+    spousesByPerson.set(personAId, [...(spousesByPerson.get(personAId) ?? []), personBId])
+    spousesByPerson.set(personBId, [...(spousesByPerson.get(personBId) ?? []), personAId])
+  })
+
+  const relationKeys = new Set(data.parents.map(({ parentId, childId }) => `${parentId}:${childId}`))
+  const inferred = data.parents.flatMap(({ parentId, childId }) => {
+    const spouses = spousesByPerson.get(parentId) ?? []
+    if (spouses.length !== 1) return []
+    const relation = { parentId: spouses[0], childId }
+    return relationKeys.has(`${relation.parentId}:${childId}`) ? [] : [relation]
+  })
+
+  return inferred.length ? { ...data, parents: [...data.parents, ...inferred] } : data
 }
 
 export function suggestedPersonPlacement(data: FamilyData, viewerId: string, kind: RelationKind, anchorId?: string, direct: DirectRelation = 'child') {

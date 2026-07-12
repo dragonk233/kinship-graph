@@ -3,7 +3,7 @@ import { initialFamily } from './data'
 import { loadFamilyData, parseFamilyBackup, saveFamilyData, serializeFamilyBackup } from './familyStorage'
 import { calculateKinship } from './kinship'
 import { hasMinnanRecording, speakMinnan, stopMinnanSpeech } from './minnanSpeech'
-import { addRelatedPerson, anchorIdsFor, genderLabel, relationOptions, relationPreview, resolvePersonOverlaps, suggestedPersonPlacement } from './relationEditor'
+import { addRelatedPerson, anchorIdsFor, ensureSpouseCoParents, genderLabel, relationOptions, relationPreview, resolvePersonOverlaps, suggestedPersonPlacement } from './relationEditor'
 import type { DirectRelation, RelationKind } from './relationEditor'
 import type { FamilyData, Gender, Person } from './types'
 import { formatZodiac } from './zodiac'
@@ -206,7 +206,7 @@ function App() {
       .then((stored) => {
         if (!active) return
         if (stored) {
-          setData(resolvePersonOverlaps(stored))
+          setData(ensureSpouseCoParents(resolvePersonOverlaps(stored)))
           const fallbackId = stored.people.some((person) => person.id === HOME_ID) ? HOME_ID : stored.people[0].id
           setViewerId(fallbackId)
           setSelectedId(stored.people.some((person) => person.id === 'father') ? 'father' : fallbackId)

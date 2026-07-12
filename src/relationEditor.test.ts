@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { initialFamily } from './data'
-import { addRelatedPerson, anchorIdsFor, genderLabel, resolvePersonOverlaps, suggestedPersonPlacement } from './relationEditor'
+import { addRelatedPerson, anchorIdsFor, ensureSpouseCoParents, genderLabel, resolvePersonOverlaps, suggestedPersonPlacement } from './relationEditor'
 import { calculateKinship } from './kinship'
 import type { Person } from './types'
 
@@ -51,6 +51,25 @@ describe('完整关系录入', () => {
       && husbandPlacement.y + 106 > person.y)
 
     expect(cardsOverlap).toBe(false)
+  })
+
+  it('给已有配偶的人添加子女时同时连接夫妻双方', () => {
+    const sisterWithHusband = addRelatedPerson(initialFamily, 'sister', { ...newcomer, id: 'brother-in-law' }, 'spouse')
+    const family = addRelatedPerson(sisterWithHusband, 'sister', { ...newcomer, id: 'sister-son', generation: 3 }, 'child')
+
+    expect(family.parents).toContainEqual({ parentId: 'sister', childId: 'sister-son' })
+    expect(family.parents).toContainEqual({ parentId: 'brother-in-law', childId: 'sister-son' })
+  })
+
+  it('打开旧档案时补全单一配偶缺失的共同子女连接', () => {
+    const oldData = {
+      ...initialFamily,
+      people: [...initialFamily.people, { ...newcomer, id: 'brother-in-law' }, { ...newcomer, id: 'niece', generation: 3 }],
+      spouses: [...initialFamily.spouses, { personAId: 'sister', personBId: 'brother-in-law' }],
+      parents: [...initialFamily.parents, { parentId: 'sister', childId: 'niece' }],
+    }
+
+    expect(ensureSpouseCoParents(oldData).parents).toContainEqual({ parentId: 'brother-in-law', childId: 'niece' })
   })
 
   it('打开旧档案时会修复已经重叠的人物坐标', () => {

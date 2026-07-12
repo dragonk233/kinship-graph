@@ -6,7 +6,6 @@ export interface Person {
   gender: Gender
   birthYear: number
   birthDate?: string
-  branch: '父系' | '母系' | '本家'
   generation: number
   x: number
   y: number

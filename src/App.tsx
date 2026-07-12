@@ -272,8 +272,7 @@ function App() {
     if (!name || !isBirthDate(birthDate)) return
     const id = `custom-${Date.now()}`
     const placement = suggestedPersonPlacement(data, viewerId, relationKind, effectiveAnchorId, directRelation)
-    const branch = (data.people.find((person) => person.id === effectiveAnchorId)?.branch ?? viewer.branch) as Person['branch']
-    const base: Person = { id, name, gender, birthYear: birthYearFromDate(birthDate), birthDate, branch, ...placement }
+    const base: Person = { id, name, gender, birthYear: birthYearFromDate(birthDate), birthDate, ...placement }
     setData((current) => addRelatedPerson(current, viewerId, base, relationKind, effectiveAnchorId, directRelation))
     setSelectedId(id); setShowAdd(false)
     setToast(`已添加${genderLabel(relationKind, gender)} ${name}`)
@@ -306,7 +305,6 @@ function App() {
       gender: String(form.get('gender')) as Gender,
       birthYear: isBirthDate(birthDate) ? birthYearFromDate(birthDate) : selected.birthYear,
       ...(isBirthDate(birthDate) ? { birthDate } : {}),
-      branch: String(form.get('branch')) as Person['branch'],
       note: String(form.get('note') || '').trim(),
       ...(AVATAR_FEATURE_ENABLED ? { avatar: avatarDraft } : {}),
     }
@@ -396,6 +394,14 @@ function App() {
     }
   }
 
+  if (!storageReady) {
+    return <div className="app-loading" role="status" aria-live="polite" aria-label="正在读取本地档案">
+      <span className="brand-seal">亲</span>
+      <strong>亲族图谱</strong>
+      <span className="loading-copy"><i/>正在读取本地档案</span>
+    </div>
+  }
+
   return <div className="app-shell">
     <header className="topbar">
       <div className="brand"><span className="brand-seal">亲</span><div><strong>亲族图谱</strong><small>称呼从关系里自然生长</small></div></div>
@@ -418,7 +424,7 @@ function App() {
             const relation = calculateKinship(data, viewerId, person.id)
             return <button key={person.id} className={person.id === selectedId ? 'active' : ''} onClick={() => setSelectedId(person.id)}>
               <Avatar person={person} size="small"/>
-              <span><strong>{person.name}</strong><small>{birthdaySummary(person)} · {formatZodiac(person.birthYear)} · {person.branch}</small></span>
+              <span><strong>{person.name}</strong><small>{birthdaySummary(person)} · {formatZodiac(person.birthYear)}</small></span>
               <em>{relation.mandarin[0]}</em>
             </button>
           })}
@@ -434,7 +440,7 @@ function App() {
       <aside className="detail-panel">
         <div className="detail-profile">
           <Avatar person={selected} size="large"/>
-          <div className="profile-copy"><span className="eyebrow">当前查看</span><h2>{selected.name}</h2><p>{birthdaySummary(selected)} · {formatZodiac(selected.birthYear)} · {selected.branch}</p>{selected.birthDate && <p className="lunar-birthday">农历：{formatLunarBirthday(selected.birthDate)}</p>}</div>
+          <div className="profile-copy"><span className="eyebrow">当前查看</span><h2>{selected.name}</h2><p>{birthdaySummary(selected)} · {formatZodiac(selected.birthYear)}</p>{selected.birthDate && <p className="lunar-birthday">农历：{formatLunarBirthday(selected.birthDate)}</p>}</div>
           <button className="edit-profile-button" onClick={openEdit} aria-label={`编辑${selected.name}的资料`}><Icon name="edit"/>编辑</button>
         </div>
         {selected.id !== viewerId && <button className="perspective-button" onClick={() => makeViewer(selected.id)}><span>以此人为我</span><small>全图称呼将同步刷新</small></button>}
@@ -491,7 +497,6 @@ function App() {
         <label>性别<select name="gender" defaultValue={selected.gender}><option value="male">男性</option><option value="female">女性</option></select></label>
         <BirthdayField defaultValue={selected.birthDate}/>
       </div>
-      <label>所属支系<select name="branch" defaultValue={selected.branch}><option value="父系">父系</option><option value="母系">母系</option><option value="本家">本家</option></select></label>
       <label>人物备注<textarea name="note" rows={3} defaultValue={selected.note ?? ''} placeholder="籍贯、小名、家庭记忆等"/></label>
       <div className="form-scope-note"><Icon name="person"/><span>此处编辑人物资料；父母、配偶、子女等关系将在“编辑关系”中单独维护。</span></div>
       <div className="modal-actions split-actions">

@@ -4,7 +4,7 @@ import { addRelatedPerson, anchorIdsFor, suggestedPersonPlacement } from './rela
 import { calculateKinship } from './kinship'
 import type { Person } from './types'
 
-const newcomer: Person = { id: 'new', name: '新人', gender: 'male', birthYear: 2001, branch: '本家', generation: 2, x: 0, y: 0 }
+const newcomer: Person = { id: 'new', name: '新人', gender: 'male', birthYear: 2001, generation: 2, x: 0, y: 0 }
 
 describe('完整关系录入', () => {
   it('通过共同父母录入兄弟姐妹', () => {

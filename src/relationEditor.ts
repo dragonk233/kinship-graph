@@ -93,8 +93,63 @@ export function suggestedPersonPlacement(data: FamilyData, viewerId: string, kin
   const up = kind === 'parent' || kind === 'grandparent' || kind === 'parentInLaw' || (kind === 'custom' && direct === 'parent')
   const down = kind === 'child' || kind === 'grandchild' || kind === 'nibling' || kind === 'sibling' || kind === 'pibling' || (kind === 'custom' && direct === 'child')
   const generation = Math.max(0, Math.min(3, anchor.generation + (up ? -1 : down ? 1 : 0)))
-  const sameGeneration = data.people.filter((person) => person.generation === generation)
-  return { generation, x: Math.min(1220, 90 + sameGeneration.length * 190), y: 80 + generation * 210 }
+  return { generation, ...findVacantPosition(data.people, anchor.x, 80 + generation * 210) }
+}
+
+const CARD_WIDTH = 148
+const CARD_HEIGHT = 94
+const STAGE_WIDTH = 1400
+const STAGE_HEIGHT = 830
+const CARD_GAP = 12
+
+function overlapsAny(people: Person[], x: number, y: number) {
+  return people.some((person) => x < person.x + CARD_WIDTH + CARD_GAP
+    && x + CARD_WIDTH + CARD_GAP > person.x
+    && y < person.y + CARD_HEIGHT + CARD_GAP
+    && y + CARD_HEIGHT + CARD_GAP > person.y)
+}
+
+function findVacantPosition(people: Person[], preferredX: number, preferredY: number) {
+  const maxX = STAGE_WIDTH - CARD_WIDTH - 20
+  const maxY = STAGE_HEIGHT - CARD_HEIGHT - 20
+  const xCandidates = Array.from({ length: Math.floor((maxX - 20) / 10) + 1 }, (_, index) => 20 + index * 10)
+    .sort((a, b) => Math.abs(a - preferredX) - Math.abs(b - preferredX))
+  const yCandidates = [preferredY, preferredY + 110, preferredY - 110, preferredY + 220, preferredY - 220]
+    .filter((y) => y >= 20 && y <= maxY)
+
+  for (const y of yCandidates) {
+    for (const x of xCandidates) {
+      if (!overlapsAny(people, x, y)) return { x, y }
+    }
+  }
+
+  // 极端拥挤时仍保证不会再次返回一个已有坐标。
+  const fallbackX = Math.max(20, Math.min(maxX, preferredX))
+  const used = new Set(people.map((person) => `${person.x}:${person.y}`))
+  for (let y = 20; y <= maxY; y += 10) {
+    for (let x = 20; x <= maxX; x += 10) {
+      if (!used.has(`${x}:${y}`)) return { x, y }
+    }
+  }
+  return { x: fallbackX, y: Math.max(20, Math.min(maxY, preferredY)) }
+}
+
+/** Repairs positions saved by older versions whose capped x coordinate caused cards to overlap. */
+export function resolvePersonOverlaps(data: FamilyData): FamilyData {
+  const placed: Person[] = []
+  let changed = false
+  const people = data.people.map((person) => {
+    if (!overlapsAny(placed, person.x, person.y)) {
+      placed.push(person)
+      return person
+    }
+    const position = findVacantPosition(placed, person.x, person.y)
+    const moved = { ...person, ...position }
+    placed.push(moved)
+    changed = true
+    return moved
+  })
+  return changed ? { ...data, people } : data
 }
 
 export function genderLabel(kind: RelationKind, gender: Gender) {

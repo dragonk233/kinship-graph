@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { initialFamily } from './data'
-import { addRelatedPerson, anchorIdsFor, suggestedPersonPlacement } from './relationEditor'
+import { addRelatedPerson, anchorIdsFor, resolvePersonOverlaps, suggestedPersonPlacement } from './relationEditor'
 import { calculateKinship } from './kinship'
 import type { Person } from './types'
 
@@ -27,5 +27,28 @@ describe('完整关系录入', () => {
     expect(suggestedPersonPlacement(initialFamily, 'me', 'sibling', 'father').generation).toBe(2)
     expect(suggestedPersonPlacement(initialFamily, 'me', 'pibling', 'p-gf').generation).toBe(1)
     expect(suggestedPersonPlacement(initialFamily, 'me', 'custom', 'daughter', 'child').generation).toBe(3)
+  })
+
+  it('连续添加亲属时不会把新人物叠在已有卡片上', () => {
+    const sonPlacement = suggestedPersonPlacement(initialFamily, 'sister', 'child')
+    const withSon = addRelatedPerson(initialFamily, 'sister', { ...newcomer, id: 'sister-son', ...sonPlacement }, 'child')
+    const husbandPlacement = suggestedPersonPlacement(withSon, 'sister', 'spouse')
+    const cardsOverlap = withSon.people.some((person) => husbandPlacement.x < person.x + 160
+      && husbandPlacement.x + 160 > person.x
+      && husbandPlacement.y < person.y + 106
+      && husbandPlacement.y + 106 > person.y)
+
+    expect(cardsOverlap).toBe(false)
+  })
+
+  it('打开旧档案时会修复已经重叠的人物坐标', () => {
+    const broken = {
+      ...initialFamily,
+      people: [...initialFamily.people, { ...newcomer, id: 'overlap', x: 1140, y: 500 }],
+    }
+    const repaired = resolvePersonOverlaps(broken)
+    const moved = repaired.people.find((person) => person.id === 'overlap')!
+
+    expect([moved.x, moved.y]).not.toEqual([1140, 500])
   })
 })

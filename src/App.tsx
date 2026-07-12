@@ -1,4 +1,4 @@
-import { FormEvent, PointerEvent, useCallback, useEffect, useMemo, useRef, useState, WheelEvent } from 'react'
+import { FormEvent, PointerEvent, useCallback, useEffect, useId, useMemo, useRef, useState, WheelEvent } from 'react'
 import { initialFamily } from './data'
 import { loadFamilyData, parseFamilyBackup, saveFamilyData, serializeFamilyBackup, serializeFamilyMarkdown } from './familyStorage'
 import { calculateKinship } from './kinship'
@@ -32,9 +32,72 @@ function initials(name: string) { return name.slice(-2) }
 
 function BirthdayField({ defaultValue, required = false }: { defaultValue?: string; required?: boolean }) {
   const [value, setValue] = useState(defaultValue ?? '')
+  const initial = isBirthDate(defaultValue) ? defaultValue.split('-').map(Number) : [2000, 1, 1]
+  const [visibleYear, setVisibleYear] = useState(initial[0])
+  const [visibleMonth, setVisibleMonth] = useState(initial[1] - 1)
+  const [open, setOpen] = useState(false)
+  const fieldRef = useRef<HTMLDivElement>(null)
+  const calendarId = useId()
   const lunar = formatLunarBirthday(value)
+  const selectedParts = isBirthDate(value) ? value.split('-').map(Number) : null
+  const daysInMonth = new Date(visibleYear, visibleMonth + 1, 0).getDate()
+  const leadingDays = new Date(visibleYear, visibleMonth, 1).getDay()
+  const cells = Array.from({ length: 42 }, (_, index) => {
+    const day = index - leadingDays + 1
+    return day >= 1 && day <= daysInMonth ? day : null
+  })
+  const today = new Date()
+
+  useEffect(() => {
+    if (!open) return
+    const closeOutside = (event: MouseEvent) => {
+      if (!fieldRef.current?.contains(event.target as Node)) setOpen(false)
+    }
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', closeOutside)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('mousedown', closeOutside)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [open])
+
+  const chooseDay = (day: number) => {
+    setValue(`${visibleYear}-${String(visibleMonth + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`)
+    setOpen(false)
+  }
+
   return <label className="birthday-field">公历生日
-    <input name="birthDate" type="date" min="1800-01-01" max="2100-12-31" value={value} required={required} onChange={(event) => setValue(event.target.value)}/>
+    <div className="date-picker" ref={fieldRef}>
+      <input name="birthDate" type="hidden" value={value}/>
+      <button className={`date-trigger ${value ? '' : 'placeholder'}`} type="button" aria-expanded={open} aria-controls={calendarId} onClick={() => setOpen((current) => !current)}>
+        <span>{value ? `${selectedParts![0]} 年 ${selectedParts![1]} 月 ${selectedParts![2]} 日` : '请选择出生日期'}</span>
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 3v3M17 3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v14H4V6a1 1 0 0 1 1-1Z"/></svg>
+      </button>
+      {required && <input className="date-required-proxy" tabIndex={-1} aria-hidden="true" required value={value} onChange={() => undefined}/>}
+      {open && <div className="calendar-popover" id={calendarId} role="dialog" aria-label="选择公历生日">
+        <div className="calendar-heading">
+          <select aria-label="年份" value={visibleYear} onChange={(event) => setVisibleYear(Number(event.target.value))}>
+            {Array.from({ length: 301 }, (_, index) => 1800 + index).map((year) => <option key={year} value={year}>{year} 年</option>)}
+          </select>
+          <select aria-label="月份" value={visibleMonth} onChange={(event) => setVisibleMonth(Number(event.target.value))}>
+            {Array.from({ length: 12 }, (_, month) => <option key={month} value={month}>{month + 1} 月</option>)}
+          </select>
+          <span className="calendar-mark">生辰</span>
+        </div>
+        <div className="calendar-weekdays" aria-hidden="true">{['日', '一', '二', '三', '四', '五', '六'].map((day) => <span key={day}>{day}</span>)}</div>
+        <div className="calendar-grid">
+          {cells.map((day, index) => day ? <button
+            type="button"
+            key={`${visibleYear}-${visibleMonth}-${day}`}
+            className={`${selectedParts?.[0] === visibleYear && selectedParts?.[1] === visibleMonth + 1 && selectedParts?.[2] === day ? 'selected' : ''} ${today.getFullYear() === visibleYear && today.getMonth() === visibleMonth && today.getDate() === day ? 'today' : ''}`}
+            onClick={() => chooseDay(day)}
+            aria-label={`${visibleYear}年${visibleMonth + 1}月${day}日`}
+          >{day}</button> : <span key={`empty-${index}`}/>) }
+        </div>
+        <div className="calendar-footer"><span>选择后自动换算农历</span>{value && <button type="button" onClick={() => { setValue(''); setOpen(false) }}>清除</button>}</div>
+      </div>}
+    </div>
     <small className={`lunar-preview ${lunar ? '' : 'empty'}`} aria-live="polite">{lunar ? `农历 · ${lunar}` : '选择后自动换算农历'}</small>
   </label>
 }
@@ -57,6 +120,7 @@ function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer, onAdd }: {
   const dragRef = useRef<{ pointerId: number; startX: number; startY: number; originX: number; originY: number } | null>(null)
   const [camera, setCamera] = useState({ x: 0, y: 0, scale: .72 })
   const [dragging, setDragging] = useState(false)
+  const [generationView, setGenerationView] = useState<number | null>(null)
   const people = useMemo(() => new Map(data.people.map((p) => [p.id, p])), [data.people])
 
   const fitView = useCallback(() => {
@@ -86,6 +150,35 @@ function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer, onAdd }: {
       const scale = Math.min(1.6, Math.max(.3, current.scale * factor))
       const ratio = scale / current.scale
       return { scale, x: centerX - (centerX - current.x) * ratio, y: centerY - (centerY - current.y) * ratio }
+    })
+  }
+
+  const showGeneration = (generation: number | null) => {
+    if (generation === null || generationView === generation) {
+      setGenerationView(null)
+      fitView()
+      return
+    }
+
+    const viewport = viewportRef.current
+    const matches = data.people.filter((person) => person.generation === generation)
+    setGenerationView(generation)
+    if (!viewport || matches.length === 0) return
+
+    const left = Math.min(...matches.map((person) => person.x))
+    const right = Math.max(...matches.map((person) => person.x + CARD_W))
+    const top = Math.min(...matches.map((person) => person.y))
+    const bottom = Math.max(...matches.map((person) => person.y + CARD_H))
+    const padding = 96
+    const scale = Math.min(
+      (viewport.clientWidth - padding) / Math.max(right - left, CARD_W),
+      (viewport.clientHeight - padding) / Math.max(bottom - top, CARD_H),
+      1.15,
+    )
+    setCamera({
+      scale,
+      x: viewport.clientWidth / 2 - ((left + right) / 2) * scale,
+      y: viewport.clientHeight / 2 - ((top + bottom) / 2) * scale,
     })
   }
 
@@ -123,11 +216,13 @@ function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer, onAdd }: {
   }
   const parentLines = data.parents.map(({ parentId, childId }) => {
     const p = people.get(parentId)!; const c = people.get(childId)!
-    return <path key={`${parentId}-${childId}`} className="blood-line" d={`M ${p.x + CARD_W / 2} ${p.y + CARD_H} C ${p.x + CARD_W / 2} ${p.y + 145}, ${c.x + CARD_W / 2} ${c.y - 50}, ${c.x + CARD_W / 2} ${c.y}`} />
+    const faded = generationView !== null && p.generation !== generationView && c.generation !== generationView
+    return <path key={`${parentId}-${childId}`} className={`blood-line ${faded ? 'generation-faded' : ''}`} d={`M ${p.x + CARD_W / 2} ${p.y + CARD_H} C ${p.x + CARD_W / 2} ${p.y + 145}, ${c.x + CARD_W / 2} ${c.y - 50}, ${c.x + CARD_W / 2} ${c.y}`} />
   })
   const spouseLines = data.spouses.map(({ personAId, personBId }) => {
     const a = people.get(personAId)!; const b = people.get(personBId)!
-    return <path key={`${personAId}-${personBId}`} className="spouse-line" d={`M ${a.x + CARD_W} ${a.y + CARD_H / 2} L ${b.x} ${b.y + CARD_H / 2}`} />
+    const faded = generationView !== null && a.generation !== generationView && b.generation !== generationView
+    return <path key={`${personAId}-${personBId}`} className={`spouse-line ${faded ? 'generation-faded' : ''}`} d={`M ${a.x + CARD_W} ${a.y + CARD_H / 2} L ${b.x} ${b.y + CARD_H / 2}`} />
   })
   return <div
     ref={viewportRef}
@@ -147,7 +242,7 @@ function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer, onAdd }: {
         const isSelected = person.id === selectedId
         return <button
           key={person.id}
-          className={`person-node ${isViewer ? 'viewer' : ''} ${isSelected ? 'selected' : ''}`}
+          className={`person-node ${isViewer ? 'viewer' : ''} ${isSelected ? 'selected' : ''} ${generationView !== null && person.generation !== generationView ? 'generation-faded' : ''} ${generationView === person.generation ? 'generation-highlighted' : ''}`}
           style={{ left: person.x, top: person.y }}
           onClick={() => onSelect(person.id)}
           onDoubleClick={() => onMakeViewer(person.id)}
@@ -159,9 +254,16 @@ function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer, onAdd }: {
         </button>
       })}
     </div>
-    <div className="generation-key" aria-label="辈分标记">
-      <span className="generation-key-title">辈分</span>
-      <span>祖辈</span><span>父辈</span><span>同辈</span><span>晚辈</span>
+    <div className="generation-key" aria-label="按辈分查看人物">
+      <button className={`generation-key-title ${generationView === null ? 'active' : ''}`} type="button" onClick={() => showGeneration(null)} aria-pressed={generationView === null} title="显示全部人物">辈分</button>
+      {['祖辈', '父辈', '同辈', '晚辈'].map((label, generation) => <button
+        key={label}
+        type="button"
+        className={generationView === generation ? 'active' : ''}
+        aria-pressed={generationView === generation}
+        onClick={() => showGeneration(generation)}
+        title={`定位并突出显示${label}人物`}
+      >{label}</button>)}
     </div>
     <div className="canvas-controls" aria-label="画布控制">
       <button onClick={() => zoomAtCenter(1.2)} aria-label="放大画布">＋</button>
@@ -422,16 +524,17 @@ function App() {
       <div className="brand"><span className="brand-seal">亲</span><div><strong>亲族图谱</strong><small>称呼从关系里自然生长</small></div></div>
       <div className="viewpoint-chip"><span>当前主视角</span><strong>{viewer.name}</strong><em>{viewerId === HOME_ID ? '本人' : '代入视角'}</em></div>
       <div className="header-actions">
-        <span className={`save-status ${saveState}`} role="status" aria-live="polite">
-          <i/>{saveState === 'loading' ? '读取本地档案' : saveState === 'saving' ? '正在保存' : saveState === 'saved' ? '已保存到本机' : '本地保存失败'}
-        </span>
+        {saveState !== 'saved' && <span className={`save-status ${saveState}`} role="status" aria-live="polite">
+          <i/>{saveState === 'loading' ? '读取本地档案' : saveState === 'saving' ? '正在保存' : '本地保存失败'}
+        </span>}
         {viewerId !== HOME_ID && data.people.some((person) => person.id === HOME_ID) && <button className="text-button" onClick={() => makeViewer(HOME_ID)}><Icon name="home"/>回到我</button>}
+        <button className="backup-button" onClick={() => setShowBackup(true)}>备份</button>
       </div>
     </header>
 
     <main className="workspace">
       <aside className="people-panel">
-        <div className="panel-heading"><div><span className="eyebrow">人物索引</span><h2>家中亲人</h2></div><div className="panel-heading-tools"><button className="backup-button" onClick={() => setShowBackup(true)}>备份</button><span className="count">{data.people.length}</span></div></div>
+        <div className="panel-heading"><div><span className="eyebrow">人物索引</span><h2>家中亲人</h2></div><div className="panel-heading-tools"><span className="count">{data.people.length}</span></div></div>
         <label className="search"><Icon name="search"/><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索姓名或称呼"/></label>
         <div className="people-list">
           {filtered.map((person) => {

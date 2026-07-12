@@ -164,14 +164,23 @@ function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer, onAdd }: {
 
   const fitView = useCallback(() => {
     const viewport = viewportRef.current
-    if (!viewport) return
-    const scale = Math.min((viewport.clientWidth - 48) / 1400, (viewport.clientHeight - 48) / 830, 1)
+    if (!viewport || data.people.length === 0) return
+    const left = Math.min(...data.people.map((person) => person.x))
+    const right = Math.max(...data.people.map((person) => person.x + CARD_W))
+    const top = Math.min(...data.people.map((person) => person.y))
+    const bottom = Math.max(...data.people.map((person) => person.y + CARD_H))
+    const padding = Math.min(96, viewport.clientWidth * .24, viewport.clientHeight * .2)
+    const scale = Math.min(
+      (viewport.clientWidth - padding) / Math.max(right - left, CARD_W),
+      (viewport.clientHeight - padding) / Math.max(bottom - top, CARD_H),
+      1.15,
+    )
     setCamera({
       scale,
-      x: (viewport.clientWidth - 1400 * scale) / 2,
-      y: (viewport.clientHeight - 830 * scale) / 2,
+      x: viewport.clientWidth / 2 - ((left + right) / 2) * scale,
+      y: viewport.clientHeight / 2 - ((top + bottom) / 2) * scale,
     })
-  }, [])
+  }, [data.people])
 
   useEffect(() => {
     fitView()
@@ -363,6 +372,8 @@ function App() {
   const [saveState, setSaveState] = useState<'loading' | 'saving' | 'saved' | 'error'>('loading')
   const historyRef = useRef<FamilyData[]>([])
   const [canUndo, setCanUndo] = useState(false)
+  const [mobileView, setMobileView] = useState<'graph' | 'people' | 'detail'>('graph')
+  const [mobileToolsOpen, setMobileToolsOpen] = useState(false)
 
   const viewer = data.people.find((p) => p.id === viewerId)!
   const selected = data.people.find((p) => p.id === selectedId)!
@@ -658,7 +669,9 @@ function App() {
     <header className="topbar">
       <div className="brand"><span className="brand-seal">亲</span><div><strong>亲族图谱</strong><small>称呼从关系里自然生长</small></div></div>
       <div className="viewpoint-chip"><span>当前主视角</span><strong>{viewer.name}</strong><em>{viewerId === HOME_ID ? '本人' : '代入视角'}</em></div>
-      <div className="header-actions">
+      <div className={`header-tools ${mobileToolsOpen ? 'open' : ''}`}>
+        <button className="mobile-tools-trigger" type="button" aria-expanded={mobileToolsOpen} onClick={() => setMobileToolsOpen((current) => !current)}>工具<span aria-hidden="true">•••</span></button>
+        <div className="header-actions" onClick={() => setMobileToolsOpen(false)}>
         {saveState !== 'saved' && <span className={`save-status ${saveState}`} role="status" aria-live="polite">
           <i/>{saveState === 'loading' ? '读取本地档案' : saveState === 'saving' ? '正在保存' : '本地保存失败'}
         </span>}
@@ -669,17 +682,18 @@ function App() {
         <button className="backup-button" onClick={() => setShowBackup(true)}>备份</button>
         <button className="showcase-button" onClick={() => setShowShowcase(true)}><Icon name="plus"/>生成示例</button>
         <button className="reset-button" onClick={() => setShowReset(true)}><Icon name="trash"/>清空</button>
+        </div>
       </div>
     </header>
 
-    <main className="workspace">
+    <main className={`workspace mobile-view-${mobileView}`}>
       <aside className="people-panel">
         <div className="panel-heading"><div><span className="eyebrow">人物索引</span><h2>家中亲人</h2></div><div className="panel-heading-tools"><span className="count">{data.people.length}</span></div></div>
         <label className="search"><Icon name="search"/><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索姓名或称呼"/></label>
         <div className="people-list">
           {filtered.map((person) => {
             const relation = calculateKinship(data, viewerId, person.id)
-            return <button key={person.id} className={person.id === selectedId ? 'active' : ''} onClick={() => setSelectedId(person.id)}>
+            return <button key={person.id} className={person.id === selectedId ? 'active' : ''} onClick={() => { setSelectedId(person.id); setMobileView('detail') }}>
               <Avatar person={person} size="small"/>
               <span><strong>{person.name}</strong><small>{birthdaySummary(person)} · {formatZodiac(person.birthYear)}</small></span>
               <em>{relation.mandarin[0]}</em>
@@ -690,7 +704,7 @@ function App() {
       </aside>
 
       <section className="canvas-panel">
-        <div className="canvas-heading"><div><span className="eyebrow">家族关系画布</span><h1>从 <b>{viewer.name}</b> 看这个家</h1></div><div className="canvas-note"><span>提示</span>点击查看，双击设为主视角</div></div>
+        <div className="canvas-heading"><div><span className="eyebrow">家族关系画布</span><h1>从 <b>{viewer.name}</b> 看这个家</h1></div><button className="mobile-selection-link" type="button" onClick={() => setMobileView('detail')}><span>已选</span><strong>{selected.name}</strong><i>›</i></button><div className="canvas-note"><span>提示</span>点击查看，双击设为主视角</div></div>
         <Graph data={data} viewerId={viewerId} selectedId={selectedId} onSelect={setSelectedId} onMakeViewer={makeViewer} onAdd={openAdd}/>
       </section>
 
@@ -700,6 +714,7 @@ function App() {
           <div className="profile-copy"><span className="eyebrow">当前查看</span><h2>{selected.name}</h2><p>{birthdaySummary(selected)} · {formatZodiac(selected.birthYear)}</p>{selected.birthDate && <p className="lunar-birthday">农历：{formatLunarBirthday(selected.birthDate)}</p>}</div>
           <button className="edit-profile-button" onClick={openEdit} aria-label={`编辑${selected.name}的资料`}><Icon name="edit"/>编辑</button>
         </div>
+        {selected.id !== viewerId && <button className="mobile-viewpoint-button" type="button" onClick={() => { makeViewer(selected.id); setMobileView('graph') }}><Icon name="person"/><span><strong>以 {selected.name} 为主视角</strong><small>重新计算所有称呼并返回图谱</small></span></button>}
         <section className="term-block"><span className="eyebrow">现实中如何称呼</span><div className="main-term">{result.mandarin[0]}</div>{result.standardMandarin && <p>系统标准称呼：{result.standardMandarin.join('、')}</p>}{result.mandarin.length > 1 && <p>也可能称作：{result.mandarin.slice(1).join('、')}</p>}
           {selected.id !== viewerId && <form className="custom-term-form" onSubmit={saveCustomTerm} key={`${viewerId}-${selectedId}-${result.mandarin[0]}`}><label>我们家怎么叫<input name="customTerm" defaultValue={data.customTerms?.find((item) => item.viewerId === viewerId && item.targetId === selectedId)?.label ?? ''} placeholder={result.standardMandarin?.[0] ?? result.mandarin[0]}/></label><button type="submit">保存</button></form>}
         </section>
@@ -712,6 +727,12 @@ function App() {
         <div className="accuracy-note"><strong>准确性提示</strong><p>闽南语称呼因泉州、厦门、漳州及家庭习惯而异。当前为演示词库，正式版允许逐条确认。</p></div>
       </aside>
     </main>
+
+    <nav className="mobile-nav" aria-label="移动端主要页面">
+      <button className={mobileView === 'graph' ? 'active' : ''} type="button" aria-current={mobileView === 'graph' ? 'page' : undefined} onClick={() => setMobileView('graph')}><Icon name="route"/><span>图谱</span></button>
+      <button className={mobileView === 'people' ? 'active' : ''} type="button" aria-current={mobileView === 'people' ? 'page' : undefined} onClick={() => setMobileView('people')}><Icon name="search"/><span>人物</span><em>{data.people.length}</em></button>
+      <button className={mobileView === 'detail' ? 'active' : ''} type="button" aria-current={mobileView === 'detail' ? 'page' : undefined} onClick={() => setMobileView('detail')}><Icon name="person"/><span>称谓</span></button>
+    </nav>
 
     {showAdd && <div className="modal-backdrop" onMouseDown={() => setShowAdd(false)}><form className="add-modal relation-modal" onSubmit={addPerson} onMouseDown={(e) => e.stopPropagation()}>
       <div><span className="eyebrow">完整关系录入</span><h2>添加与 {viewer.name} 有关的亲人</h2><p>先选择现实中的称谓；系统会把它转换成可验证的父母、子女或配偶关系。</p></div>

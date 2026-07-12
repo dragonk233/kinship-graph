@@ -52,6 +52,39 @@ export function serializeFamilyBackup(data: FamilyData): string {
   return JSON.stringify({ version: 1, data: compactFamilyData(data) } satisfies StoredFamily)
 }
 
+function mermaidLabel(value: string): string {
+  return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+function markdownCell(value: string): string {
+  return value.replace(/\|/g, '\\|').replace(/\r?\n/g, '<br>')
+}
+
+export function serializeFamilyMarkdown(data: FamilyData, exportedAt = new Date()): string {
+  const compact = compactFamilyData(data)
+  const nodeIds = new Map(compact.people.map((person, index) => [person.id, `person_${index + 1}`]))
+  const lines = compact.people.map((person) => {
+    const details = person.birthDate ?? String(person.birthYear)
+    return `  ${nodeIds.get(person.id)}["${mermaidLabel(person.name)}<br/>${mermaidLabel(details)}"]`
+  })
+
+  for (const { parentId, childId } of compact.parents) {
+    lines.push(`  ${nodeIds.get(parentId)} -->|亲子| ${nodeIds.get(childId)}`)
+  }
+  for (const { personAId, personBId } of compact.spouses) {
+    lines.push(`  ${nodeIds.get(personAId)} ---|夫妻| ${nodeIds.get(personBId)}`)
+  }
+
+  const peopleRows = compact.people.map((person) => [
+    person.name,
+    person.gender === 'male' ? '男' : '女',
+    person.birthDate ?? String(person.birthYear),
+    person.note ?? '',
+  ].map(markdownCell).join(' | '))
+
+  return `# 亲族图谱\n\n导出日期：${exportedAt.toISOString().slice(0, 10)}\n\n> 此文件用于查看和分享；恢复家谱请使用应用导出的 JSON 备份。\n\n\`\`\`mermaid\nflowchart TB\n${lines.join('\n')}\n\`\`\`\n\n## 人物资料\n\n姓名 | 性别 | 出生日期/年份 | 备注\n--- | --- | --- | ---\n${peopleRows.join('\n')}\n`
+}
+
 export function parseFamilyBackup(source: string): FamilyData {
   let parsed: unknown
   try {

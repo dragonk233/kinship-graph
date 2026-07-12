@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { compactFamilyData, parseFamilyBackup, serializeFamilyBackup } from './familyStorage'
+import { compactFamilyData, parseFamilyBackup, serializeFamilyBackup, serializeFamilyMarkdown } from './familyStorage'
 import type { FamilyData } from './types'
 
 describe('compactFamilyData', () => {
@@ -73,5 +73,26 @@ describe('compactFamilyData', () => {
     })
 
     expect(() => parseFamilyBackup(invalid)).toThrow('备份文件格式或家谱关系无效')
+  })
+
+  it('exports a readable Markdown family tree without exposing internal ids', () => {
+    const data: FamilyData = {
+      people: [
+        { id: 'father-private-id', name: '王建国', gender: 'male', birthYear: 1970, generation: 1, x: 10, y: 20, note: '祖籍|泉州' },
+        { id: 'me-private-id', name: '王晓明', gender: 'male', birthYear: 1999, birthDate: '1999-08-06', generation: 2, x: 10, y: 20 },
+      ],
+      parents: [{ parentId: 'father-private-id', childId: 'me-private-id' }],
+      spouses: [{ personAId: 'father-private-id', personBId: 'me-private-id' }],
+    }
+
+    const markdown = serializeFamilyMarkdown(data, new Date('2026-07-12T00:00:00Z'))
+
+    expect(markdown).toContain('导出日期：2026-07-12')
+    expect(markdown).toContain('```mermaid\nflowchart TB')
+    expect(markdown).toContain('person_1 -->|亲子| person_2')
+    expect(markdown).toContain('person_1 ---|夫妻| person_2')
+    expect(markdown).toContain('王晓明 | 男 | 1999-08-06')
+    expect(markdown).toContain('祖籍\\|泉州')
+    expect(markdown).not.toContain('father-private-id')
   })
 })

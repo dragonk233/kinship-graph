@@ -1,6 +1,6 @@
 import { FormEvent, PointerEvent, useCallback, useEffect, useMemo, useRef, useState, WheelEvent } from 'react'
 import { initialFamily } from './data'
-import { loadFamilyData, parseFamilyBackup, saveFamilyData, serializeFamilyBackup } from './familyStorage'
+import { loadFamilyData, parseFamilyBackup, saveFamilyData, serializeFamilyBackup, serializeFamilyMarkdown } from './familyStorage'
 import { calculateKinship } from './kinship'
 import { hasMinnanRecording, speakMinnan, stopMinnanSpeech } from './minnanSpeech'
 import { addRelatedPerson, anchorIdsFor, ensureSpouseCoParents, genderLabel, relationOptions, relationPreview, resolvePersonOverlaps, suggestedPersonPlacement } from './relationEditor'
@@ -33,9 +33,9 @@ function initials(name: string) { return name.slice(-2) }
 function BirthdayField({ defaultValue, required = false }: { defaultValue?: string; required?: boolean }) {
   const [value, setValue] = useState(defaultValue ?? '')
   const lunar = formatLunarBirthday(value)
-  return <label>公历生日
+  return <label className="birthday-field">公历生日
     <input name="birthDate" type="date" min="1800-01-01" max="2100-12-31" value={value} required={required} onChange={(event) => setValue(event.target.value)}/>
-    <small className={`lunar-preview ${lunar ? '' : 'empty'}`}>{lunar ? `农历生日：${lunar}` : '选择公历日期后，将自动显示农历生日'}</small>
+    <small className={`lunar-preview ${lunar ? '' : 'empty'}`} aria-live="polite">{lunar ? `农历 · ${lunar}` : '选择后自动换算农历'}</small>
   </label>
 }
 
@@ -50,8 +50,8 @@ function Avatar({ person, size }: { person: Person; size?: 'small' | 'large' }) 
   </span>
 }
 
-function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer }: {
-  data: FamilyData; viewerId: string; selectedId: string; onSelect: (id: string) => void; onMakeViewer: (id: string) => void
+function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer, onAdd }: {
+  data: FamilyData; viewerId: string; selectedId: string; onSelect: (id: string) => void; onMakeViewer: (id: string) => void; onAdd: () => void
 }) {
   const viewportRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{ pointerId: number; startX: number; startY: number; originX: number; originY: number } | null>(null)
@@ -158,8 +158,10 @@ function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer }: {
           <span className="node-copy"><strong>{person.name}</strong><small>{result.mandarin[0]}</small></span>
         </button>
       })}
-      <div className="generation-label g0">祖辈</div><div className="generation-label g1">父辈</div>
-      <div className="generation-label g2">同辈</div><div className="generation-label g3">晚辈</div>
+    </div>
+    <div className="generation-key" aria-label="辈分标记">
+      <span className="generation-key-title">辈分</span>
+      <span>祖辈</span><span>父辈</span><span>同辈</span><span>晚辈</span>
     </div>
     <div className="canvas-controls" aria-label="画布控制">
       <button onClick={() => zoomAtCenter(1.2)} aria-label="放大画布">＋</button>
@@ -168,6 +170,7 @@ function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer }: {
       <i />
       <button className="fit-button" onClick={fitView} aria-label="适应全部人物">适应</button>
     </div>
+    <button className="canvas-add-button" onClick={onAdd}><Icon name="plus"/><span>添加亲人</span></button>
     <div className="pan-hint">按住空白处拖动 · 滚轮缩放</div>
   </div>
 }
@@ -372,6 +375,18 @@ function App() {
     window.setTimeout(() => setToast(''), 2200)
   }
 
+  const exportMarkdown = () => {
+    const blob = new Blob([serializeFamilyMarkdown(data)], { type: 'text/markdown;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `亲族图谱-${new Date().toISOString().slice(0, 10)}.md`
+    link.click()
+    URL.revokeObjectURL(url)
+    setToast('可读家谱已导出')
+    window.setTimeout(() => setToast(''), 2200)
+  }
+
   const importBackup = async (file?: File) => {
     if (!file) return
     if (file.size > 1024 * 1024) {
@@ -411,7 +426,6 @@ function App() {
           <i/>{saveState === 'loading' ? '读取本地档案' : saveState === 'saving' ? '正在保存' : saveState === 'saved' ? '已保存到本机' : '本地保存失败'}
         </span>
         {viewerId !== HOME_ID && data.people.some((person) => person.id === HOME_ID) && <button className="text-button" onClick={() => makeViewer(HOME_ID)}><Icon name="home"/>回到我</button>}
-        <button className="primary-button" onClick={openAdd}><Icon name="plus"/>添加亲人</button>
       </div>
     </header>
 
@@ -434,7 +448,7 @@ function App() {
 
       <section className="canvas-panel">
         <div className="canvas-heading"><div><span className="eyebrow">家族关系画布</span><h1>从 <b>{viewer.name}</b> 看这个家</h1></div><div className="canvas-note"><span>提示</span>点击查看，双击设为主视角</div></div>
-        <Graph data={data} viewerId={viewerId} selectedId={selectedId} onSelect={setSelectedId} onMakeViewer={makeViewer}/>
+        <Graph data={data} viewerId={viewerId} selectedId={selectedId} onSelect={setSelectedId} onMakeViewer={makeViewer} onAdd={openAdd}/>
       </section>
 
       <aside className="detail-panel">
@@ -508,7 +522,8 @@ function App() {
     {showBackup && <div className="modal-backdrop" onMouseDown={() => setShowBackup(false)}><section className="backup-modal" role="dialog" aria-modal="true" aria-labelledby="backup-title" onMouseDown={(e) => e.stopPropagation()}>
       <div><span className="eyebrow">本地档案</span><h2 id="backup-title">备份与恢复家谱</h2><p>数据只保存在当前浏览器。定期导出一份精简备份，可以在清理浏览器或更换设备后恢复。</p></div>
       <div className="backup-options">
-        <section><strong>导出当前家谱</strong><p>下载不含头像和历史记录的紧凑 JSON 文件。</p><button type="button" onClick={exportBackup}>导出备份</button></section>
+        <section><strong>导出 JSON 备份</strong><p>用于完整恢复家谱，不含头像和历史记录。</p><button type="button" onClick={exportBackup}>导出备份</button></section>
+        <section><strong>导出可读家谱</strong><p>下载含 Mermaid 图和人物资料的 Markdown 文件。</p><button type="button" onClick={exportMarkdown}>导出 Markdown</button></section>
         <section><strong>从备份恢复</strong><p>导入会覆盖当前家谱，文件必须来自本应用且不超过 1MB。</p><label className="import-backup-button">选择备份文件<input type="file" accept="application/json,.json" onChange={(event) => { void importBackup(event.target.files?.[0]); event.currentTarget.value = '' }}/></label></section>
       </div>
       <div className="modal-actions"><button type="button" onClick={() => setShowBackup(false)}>关闭</button></div>

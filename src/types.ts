@@ -23,10 +23,17 @@ export interface SpouseRelation {
   personBId: string
 }
 
+export interface CustomTerm {
+  viewerId: string
+  targetId: string
+  label: string
+}
+
 export interface FamilyData {
   people: Person[]
   parents: ParentRelation[]
   spouses: SpouseRelation[]
+  customTerms?: CustomTerm[]
 }
 
 export interface KinshipResult {
@@ -34,6 +41,7 @@ export interface KinshipResult {
   pathIds: string[]
   pathLabel: string
   mandarin: string[]
+  standardMandarin?: string[]
   minnan: string
   minnanAudioTerms: string[]
   minnanKind: 'term' | 'path'

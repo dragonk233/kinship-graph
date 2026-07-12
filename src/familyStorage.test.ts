@@ -49,6 +49,19 @@ describe('compactFamilyData', () => {
     expect(parseFamilyBackup(serialized)).toEqual(compactFamilyData(data))
   })
 
+  it('round-trips trimmed family-specific terms in version 2 backups', () => {
+    const data: FamilyData = {
+      people: [
+        { id: 'me', name: '王晓明', gender: 'male', birthYear: 1999, generation: 2, x: 10, y: 20 },
+        { id: 'uncle', name: '林志强', gender: 'male', birthYear: 1976, generation: 1, x: 30, y: 20 },
+      ],
+      parents: [], spouses: [], customTerms: [{ viewerId: 'me', targetId: 'uncle', label: '  阿舅  ' }],
+    }
+    const serialized = serializeFamilyBackup(data)
+    expect(JSON.parse(serialized).version).toBe(2)
+    expect(parseFamilyBackup(serialized).customTerms?.[0].label).toBe('阿舅')
+  })
+
   it('accepts old backups and drops the retired branch field', () => {
     const legacy = JSON.stringify({
       version: 1,

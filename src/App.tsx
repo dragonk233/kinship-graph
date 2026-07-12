@@ -8,6 +8,7 @@ import type { DirectRelation, RelationKind } from './relationEditor'
 import type { FamilyData, Gender, Person } from './types'
 import { formatZodiac } from './zodiac'
 import { birthYearFromDate, formatLunarBirthday, formatSolarBirthday, isBirthDate } from './lunar'
+import { inspectFamilyHealth } from './familyHealth'
 
 const HOME_ID = 'me'
 const CARD_W = 148
@@ -286,6 +287,10 @@ function App() {
   const [showEdit, setShowEdit] = useState(false)
   const [showBackup, setShowBackup] = useState(false)
   const [showRelations, setShowRelations] = useState(false)
+  const [showPair, setShowPair] = useState(false)
+  const [showHealth, setShowHealth] = useState(false)
+  const [pairAId, setPairAId] = useState(HOME_ID)
+  const [pairBId, setPairBId] = useState('father')
   const [relationKind, setRelationKind] = useState<RelationKind>('parent')
   const [relationAnchorId, setRelationAnchorId] = useState('')
   const [directRelation, setDirectRelation] = useState<DirectRelation>('child')
@@ -295,6 +300,8 @@ function App() {
   const [speaking, setSpeaking] = useState(false)
   const [storageReady, setStorageReady] = useState(false)
   const [saveState, setSaveState] = useState<'loading' | 'saving' | 'saved' | 'error'>('loading')
+  const historyRef = useRef<FamilyData[]>([])
+  const [canUndo, setCanUndo] = useState(false)
 
   const viewer = data.people.find((p) => p.id === viewerId)!
   const selected = data.people.find((p) => p.id === selectedId)!
@@ -304,6 +311,25 @@ function App() {
   const hasOfficialRecording = hasMinnanRecording(result.minnanAudioTerms)
   const relationAnchors = anchorIdsFor(data, viewerId, relationKind)
   const effectiveAnchorId = relationAnchors.includes(relationAnchorId) ? relationAnchorId : (relationAnchors[0] ?? '')
+  const healthIssues = useMemo(() => inspectFamilyHealth(data), [data])
+  const pairForward = calculateKinship(data, pairAId, pairBId)
+  const pairReverse = calculateKinship(data, pairBId, pairAId)
+
+  const updateData = (updater: (current: FamilyData) => FamilyData) => {
+    historyRef.current = [...historyRef.current.slice(-19), data]
+    setCanUndo(true)
+    setData(updater(data))
+  }
+
+  const undo = () => {
+    const previous = historyRef.current.at(-1)
+    if (!previous) return
+    historyRef.current = historyRef.current.slice(0, -1)
+    setData(previous)
+    setCanUndo(historyRef.current.length > 0)
+    setToast('已撤销上一步家谱修改')
+    window.setTimeout(() => setToast(''), 2200)
+  }
 
   useEffect(() => {
     let active = true
@@ -378,7 +404,7 @@ function App() {
     const id = `custom-${Date.now()}`
     const placement = suggestedPersonPlacement(data, viewerId, relationKind, effectiveAnchorId, directRelation)
     const base: Person = { id, name, gender, birthYear: birthYearFromDate(birthDate), birthDate, ...placement }
-    setData((current) => addRelatedPerson(current, viewerId, base, relationKind, effectiveAnchorId, directRelation))
+    updateData((current) => addRelatedPerson(current, viewerId, base, relationKind, effectiveAnchorId, directRelation))
     setSelectedId(id); setShowAdd(false)
     setToast(`已添加${genderLabel(relationKind, gender, viewer, base)} ${name}`)
     window.setTimeout(() => setToast(''), 2200)
@@ -392,7 +418,7 @@ function App() {
   }
 
   const removeDirectRelation = (type: 'parent' | 'spouse', firstId: string, secondId: string) => {
-    setData((current) => type === 'parent'
+    updateData((current) => type === 'parent'
       ? { ...current, parents: current.parents.filter((item) => !(item.parentId === firstId && item.childId === secondId)) }
       : { ...current, spouses: current.spouses.filter((item) => !((item.personAId === firstId && item.personBId === secondId) || (item.personAId === secondId && item.personBId === firstId))) })
     setToast('关系已移除，人物资料仍然保留')
@@ -413,7 +439,7 @@ function App() {
       note: String(form.get('note') || '').trim(),
       ...(AVATAR_FEATURE_ENABLED ? { avatar: avatarDraft } : {}),
     }
-    setData((current) => ({
+    updateData((current) => ({
       ...current,
       people: current.people.map((person) => person.id === selectedId ? { ...person, ...updated } : person),
     }))
@@ -425,6 +451,20 @@ function App() {
   const openEdit = () => {
     setAvatarDraft(selected.avatar)
     setShowEdit(true)
+  }
+
+  const saveCustomTerm = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const label = String(new FormData(event.currentTarget).get('customTerm') || '').trim()
+    updateData((current) => ({
+      ...current,
+      customTerms: [
+        ...(current.customTerms ?? []).filter((item) => !(item.viewerId === viewerId && item.targetId === selectedId)),
+        ...(label ? [{ viewerId, targetId: selectedId, label }] : []),
+      ],
+    }))
+    setToast(label ? `已记住：${viewer.name}叫${selected.name}“${label}”` : '已恢复系统标准称呼')
+    window.setTimeout(() => setToast(''), 2400)
   }
 
   const uploadAvatar = (file?: File) => {
@@ -453,10 +493,11 @@ function App() {
   const deletePerson = () => {
     if (!deleteTarget || data.people.length <= 1) return
     const fallback = data.people.find((person) => person.id !== deleteTarget.id)!
-    setData((current) => ({
+    updateData((current) => ({
       people: current.people.filter((person) => person.id !== deleteTarget.id),
       parents: current.parents.filter(({ parentId, childId }) => parentId !== deleteTarget.id && childId !== deleteTarget.id),
       spouses: current.spouses.filter(({ personAId, personBId }) => personAId !== deleteTarget.id && personBId !== deleteTarget.id),
+      customTerms: current.customTerms?.filter(({ viewerId, targetId }) => viewerId !== deleteTarget.id && targetId !== deleteTarget.id),
     }))
     if (viewerId === deleteTarget.id) setViewerId(fallback.id)
     if (selectedId === deleteTarget.id) setSelectedId(fallback.id)
@@ -499,7 +540,7 @@ function App() {
     try {
       const imported = parseFamilyBackup(await file.text())
       const nextViewerId = imported.people.some((person) => person.id === HOME_ID) ? HOME_ID : imported.people[0].id
-      setData(resolvePersonOverlaps(imported))
+      updateData(() => resolvePersonOverlaps(imported))
       setViewerId(nextViewerId)
       setSelectedId(imported.people.some((person) => person.id === 'father') ? 'father' : nextViewerId)
       setShowBackup(false)
@@ -528,6 +569,9 @@ function App() {
           <i/>{saveState === 'loading' ? '读取本地档案' : saveState === 'saving' ? '正在保存' : '本地保存失败'}
         </span>}
         {viewerId !== HOME_ID && data.people.some((person) => person.id === HOME_ID) && <button className="text-button" onClick={() => makeViewer(HOME_ID)}><Icon name="home"/>回到我</button>}
+        <button className="backup-button" onClick={undo} disabled={!canUndo}>撤销</button>
+        <button className="backup-button" onClick={() => { setPairAId(viewerId); setPairBId(selectedId === viewerId ? data.people.find((person) => person.id !== viewerId)?.id ?? viewerId : selectedId); setShowPair(true) }}>两人关系</button>
+        <button className={`backup-button ${healthIssues.length ? 'has-issues' : ''}`} onClick={() => setShowHealth(true)}>检查{healthIssues.length ? ` · ${healthIssues.length}` : ''}</button>
         <button className="backup-button" onClick={() => setShowBackup(true)}>备份</button>
       </div>
     </header>
@@ -561,7 +605,9 @@ function App() {
           <button className="edit-profile-button" onClick={openEdit} aria-label={`编辑${selected.name}的资料`}><Icon name="edit"/>编辑</button>
         </div>
         {selected.id !== viewerId && <button className="perspective-button" onClick={() => makeViewer(selected.id)}><span>以此人为我</span><small>全图称呼将同步刷新</small></button>}
-        <section className="term-block"><span className="eyebrow">现实中如何称呼</span><div className="main-term">{result.mandarin[0]}</div>{result.mandarin.length > 1 && <p>也可能称作：{result.mandarin.slice(1).join('、')}</p>}</section>
+        <section className="term-block"><span className="eyebrow">现实中如何称呼</span><div className="main-term">{result.mandarin[0]}</div>{result.standardMandarin && <p>系统标准称呼：{result.standardMandarin.join('、')}</p>}{result.mandarin.length > 1 && <p>也可能称作：{result.mandarin.slice(1).join('、')}</p>}
+          {selected.id !== viewerId && <form className="custom-term-form" onSubmit={saveCustomTerm} key={`${viewerId}-${selectedId}-${result.mandarin[0]}`}><label>我们家怎么叫<input name="customTerm" defaultValue={data.customTerms?.find((item) => item.viewerId === viewerId && item.targetId === selectedId)?.label ?? ''} placeholder={result.standardMandarin?.[0] ?? result.mandarin[0]}/></label><button type="submit">保存</button></form>}
+        </section>
         <section className="dialect-block"><div><span className="eyebrow">闽南语 · {result.minnanKind === 'term' ? '官方称呼' : '关系路径读法'}</span><strong>{result.minnan}</strong><a href="https://sutian.moe.edu.tw/" target="_blank" rel="noreferrer">音频来源：教育部《臺灣台语常用词辭典》</a></div><button className={`speak-button ${speaking ? 'speaking' : ''}`} onClick={playMinnan} disabled={speaking || !hasOfficialRecording} aria-label={`用闽南语播报${result.minnan}`} title={result.minnanKind === 'term' ? '播放教育部官方真人发音' : '逐段播放官方词条发音'}><Icon name="speaker"/>{speaking ? '播报中' : hasOfficialRecording ? '播报' : '暂无音频'}</button></section>
         <section className="path-block"><div className="section-title"><span className="eyebrow">关系是怎么得出的</span><Icon name="route"/></div><p>{result.pathLabel}</p><div className="path-flow">
           {pathPeople.map((person, index) => <span key={person.id}><b>{person.name}</b>{index < pathPeople.length - 1 && <i>→</i>}</span>)}
@@ -635,6 +681,17 @@ function App() {
       <div className="danger-mark"><Icon name="trash"/></div>
       <div><span className="eyebrow">删除人物</span><h2 id="delete-person-title">确认删除 {deleteTarget.name}？</h2><p>人物资料及其父母、子女、配偶关系将一并删除，此操作无法撤销。</p></div>
       <div className="modal-actions"><button type="button" onClick={() => setDeleteTargetId(null)}>取消</button><button className="confirm-delete-button" type="button" onClick={deletePerson}>确认删除</button></div>
+    </section></div>}
+    {showPair && <div className="modal-backdrop" onMouseDown={() => setShowPair(false)}><section className="pair-modal" role="dialog" aria-modal="true" aria-labelledby="pair-title" onMouseDown={(event) => event.stopPropagation()}>
+      <div><span className="eyebrow">双向称呼查询</span><h2 id="pair-title">两个人是什么关系</h2><p>同时查看双方各自应该如何称呼对方。</p></div>
+      <div className="pair-selectors"><label>人物甲<select value={pairAId} onChange={(event) => setPairAId(event.target.value)}>{data.people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label><span>⇄</span><label>人物乙<select value={pairBId} onChange={(event) => setPairBId(event.target.value)}>{data.people.map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label></div>
+      <div className="pair-results"><section><span>{data.people.find((person) => person.id === pairAId)?.name} 称呼 {data.people.find((person) => person.id === pairBId)?.name}</span><strong>{pairForward.mandarin[0]}</strong><p>{pairForward.pathLabel}</p></section><section><span>{data.people.find((person) => person.id === pairBId)?.name} 称呼 {data.people.find((person) => person.id === pairAId)?.name}</span><strong>{pairReverse.mandarin[0]}</strong><p>{pairReverse.pathLabel}</p></section></div>
+      <div className="modal-actions"><button type="button" onClick={() => setShowPair(false)}>关闭</button></div>
+    </section></div>}
+    {showHealth && <div className="modal-backdrop" onMouseDown={() => setShowHealth(false)}><section className="health-modal" role="dialog" aria-modal="true" aria-labelledby="health-title" onMouseDown={(event) => event.stopPropagation()}>
+      <div><span className="eyebrow">数据健康检查</span><h2 id="health-title">家谱关系检查</h2><p>检查重复连接、关系循环和明显的出生年份风险。</p></div>
+      <div className="health-list">{healthIssues.length === 0 ? <div className="health-ok"><strong>未发现明确问题</strong><span>当前 {data.people.length} 位人物、{data.parents.length + data.spouses.length} 条直接关系通过检查。</span></div> : healthIssues.map((issue, index) => <div className={issue.level} key={`${issue.title}-${index}`}><i>{issue.level === 'error' ? '!' : '?'}</i><span><strong>{issue.title}</strong><small>{issue.detail}</small></span></div>)}</div>
+      <div className="modal-actions"><button type="button" onClick={() => setShowHealth(false)}>完成</button></div>
     </section></div>}
     {toast && <div className="toast"><span className="mini-seal">我</span>{toast}</div>}
   </div>

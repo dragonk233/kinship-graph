@@ -112,11 +112,13 @@ export function calculateKinship(data: FamilyData, viewerId: string, targetId: s
     : targetId
   const mandarin = narrowBySeniority(computed, viewer, personById(data, seniorityId))
   const minnan = resolveMinnan(found.codes)
+  const custom = data.customTerms?.find((item) => item.viewerId === viewerId && item.targetId === targetId)?.label.trim()
   return {
     codes: found.codes,
     pathIds: found.ids,
     pathLabel: text,
-    mandarin: mandarin.length ? mandarin : [text],
+    mandarin: custom ? [custom] : (mandarin.length ? mandarin : [text]),
+    ...(custom ? { standardMandarin: mandarin.length ? mandarin : [text] } : {}),
     minnan: minnan.label,
     minnanAudioTerms: minnan.audioTerms,
     minnanKind: minnan.kind,

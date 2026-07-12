@@ -29,4 +29,11 @@ describe('亲属关系推导', () => {
     expect(calculateKinship(initialFamily, 'me', 'maternal-cousin').mandarin).toEqual(['舅表妹'])
     expect(calculateKinship(initialFamily, 'cousin', 'me').mandarin).toEqual(['堂弟'])
   })
+
+  it('家庭叫法覆盖显示结果并保留系统标准称呼', () => {
+    const data = { ...initialFamily, customTerms: [{ viewerId: 'me', targetId: 'maternal-uncle', label: '阿舅' }] }
+    const result = calculateKinship(data, 'me', 'maternal-uncle')
+    expect(result.mandarin).toEqual(['阿舅'])
+    expect(result.standardMandarin).toEqual(['小舅'])
+  })
 })

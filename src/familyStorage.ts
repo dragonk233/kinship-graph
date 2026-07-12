@@ -6,7 +6,7 @@ const STORE_NAME = 'families'
 const CURRENT_FAMILY_KEY = 'current'
 
 type StoredFamily = {
-  version: 1
+  version: 1 | 2
   data: FamilyData
 }
 
@@ -24,7 +24,10 @@ function isFamilyData(value: unknown): value is FamilyData {
   if (!validPeople) return false
   const personIds = new Set(candidate.people.map((person) => person.id))
   if (personIds.size !== candidate.people.length) return false
-  return candidate.parents.every((relation) => relation
+  const validCustomTerms = candidate.customTerms === undefined || (Array.isArray(candidate.customTerms) && candidate.customTerms.every((term) => term
+    && personIds.has(term.viewerId) && personIds.has(term.targetId)
+    && typeof term.label === 'string' && term.label.trim().length > 0))
+  return validCustomTerms && candidate.parents.every((relation) => relation
     && personIds.has(relation.parentId) && personIds.has(relation.childId))
     && candidate.spouses.every((relation) => relation
       && personIds.has(relation.personAId) && personIds.has(relation.personBId))
@@ -45,11 +48,12 @@ export function compactFamilyData(data: FamilyData): FamilyData {
     })),
     parents: data.parents.map(({ parentId, childId }) => ({ parentId, childId })),
     spouses: data.spouses.map(({ personAId, personBId }) => ({ personAId, personBId })),
+    ...(data.customTerms?.length ? { customTerms: data.customTerms.map(({ viewerId, targetId, label }) => ({ viewerId, targetId, label: label.trim() })) } : {}),
   }
 }
 
 export function serializeFamilyBackup(data: FamilyData): string {
-  return JSON.stringify({ version: 1, data: compactFamilyData(data) } satisfies StoredFamily)
+  return JSON.stringify({ version: 2, data: compactFamilyData(data) } satisfies StoredFamily)
 }
 
 function mermaidLabel(value: string): string {
@@ -93,7 +97,7 @@ export function parseFamilyBackup(source: string): FamilyData {
     throw new Error('备份文件不是有效的 JSON')
   }
   const stored = parsed as Partial<StoredFamily>
-  if (stored?.version !== 1 || !isFamilyData(stored.data)) throw new Error('备份文件格式或家谱关系无效')
+  if (![1, 2].includes(stored?.version ?? 0) || !isFamilyData(stored.data)) throw new Error('备份文件格式或家谱关系无效')
   return compactFamilyData(stored.data)
 }
 
@@ -117,7 +121,7 @@ export async function loadFamilyData(): Promise<FamilyData | null> {
       const request = database.transaction(STORE_NAME, 'readonly').objectStore(STORE_NAME).get(CURRENT_FAMILY_KEY)
       request.onsuccess = () => {
         const stored = request.result as StoredFamily | undefined
-        resolve(stored?.version === 1 && isFamilyData(stored.data) ? compactFamilyData(stored.data) : null)
+        resolve((stored?.version === 1 || stored?.version === 2) && isFamilyData(stored.data) ? compactFamilyData(stored.data) : null)
       }
       request.onerror = () => reject(request.error ?? new Error('无法读取本地家谱'))
     })
@@ -132,7 +136,7 @@ export async function saveFamilyData(data: FamilyData): Promise<void> {
   try {
     await new Promise<void>((resolve, reject) => {
       const transaction = database.transaction(STORE_NAME, 'readwrite')
-      transaction.objectStore(STORE_NAME).put({ version: 1, data: compactFamilyData(data) } satisfies StoredFamily, CURRENT_FAMILY_KEY)
+      transaction.objectStore(STORE_NAME).put({ version: 2, data: compactFamilyData(data) } satisfies StoredFamily, CURRENT_FAMILY_KEY)
       transaction.oncomplete = () => resolve()
       transaction.onerror = () => reject(transaction.error ?? new Error('无法保存本地家谱'))
       transaction.onabort = () => reject(transaction.error ?? new Error('本地保存已取消'))

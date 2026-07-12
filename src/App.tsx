@@ -124,12 +124,28 @@ function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer, onAdd }: {
   const [camera, setCamera] = useState({ x: 0, y: 0, scale: .72 })
   const [dragging, setDragging] = useState(false)
   const [generationView, setGenerationView] = useState<number | null>(null)
+  const [relationshipFocus, setRelationshipFocus] = useState(true)
   const [legalFilter, setLegalFilter] = useState<LegalFilterId | null>(null)
   const [filterMenuOpen, setFilterMenuOpen] = useState(false)
+  const [viewTab, setViewTab] = useState<'generation' | 'legal'>('generation')
   const filterRef = useRef<HTMLDivElement>(null)
   const people = useMemo(() => new Map(data.people.map((p) => [p.id, p])), [data.people])
   const matchedIds = useMemo(() => new Set(legalFilter ? data.people.filter((person) => matchesLegalFilter(data, viewerId, person.id, legalFilter)).map((person) => person.id) : []), [data, viewerId, legalFilter])
   const activeLegalOption = legalFilterOptions.find((option) => option.id === legalFilter)
+  const generationOptions = ['祖辈', '父辈', '同辈', '晚辈']
+  const activeGenerationLabel = generationView === null ? null : generationOptions[generationView]
+  const focusIds = useMemo(() => {
+    const ids = new Set([selectedId])
+    data.parents.forEach(({ parentId, childId }) => {
+      if (parentId === selectedId) ids.add(childId)
+      if (childId === selectedId) ids.add(parentId)
+    })
+    data.spouses.forEach(({ personAId, personBId }) => {
+      if (personAId === selectedId) ids.add(personBId)
+      if (personBId === selectedId) ids.add(personAId)
+    })
+    return ids
+  }, [data.parents, data.spouses, selectedId])
 
   useEffect(() => {
     if (!filterMenuOpen) return
@@ -180,6 +196,7 @@ function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer, onAdd }: {
     const viewport = viewportRef.current
     const matches = data.people.filter((person) => person.generation === generation)
     setGenerationView(generation)
+    setLegalFilter(null)
     if (!viewport || matches.length === 0) return
 
     const left = Math.min(...matches.map((person) => person.x))
@@ -234,12 +251,16 @@ function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer, onAdd }: {
   const parentLines = data.parents.map(({ parentId, childId }) => {
     const p = people.get(parentId)!; const c = people.get(childId)!
     const faded = generationView !== null && p.generation !== generationView && c.generation !== generationView
-    return <path key={`${parentId}-${childId}`} className={`blood-line ${faded ? 'generation-faded' : ''}`} d={`M ${p.x + CARD_W / 2} ${p.y + CARD_H} C ${p.x + CARD_W / 2} ${p.y + 145}, ${c.x + CARD_W / 2} ${c.y - 50}, ${c.x + CARD_W / 2} ${c.y}`} />
+    const legalFaded = legalFilter !== null && !matchedIds.has(parentId) && !matchedIds.has(childId) && parentId !== viewerId && childId !== viewerId
+    const focused = parentId === selectedId || childId === selectedId
+    return <path key={`${parentId}-${childId}`} className={`blood-line ${faded ? 'generation-faded' : ''} ${legalFaded ? 'view-filtered-out' : ''} ${relationshipFocus ? (focused ? 'relationship-focused' : 'relationship-muted') : ''}`} d={`M ${p.x + CARD_W / 2} ${p.y + CARD_H} C ${p.x + CARD_W / 2} ${p.y + 145}, ${c.x + CARD_W / 2} ${c.y - 50}, ${c.x + CARD_W / 2} ${c.y}`} />
   })
   const spouseLines = data.spouses.map(({ personAId, personBId }) => {
     const a = people.get(personAId)!; const b = people.get(personBId)!
     const faded = generationView !== null && a.generation !== generationView && b.generation !== generationView
-    return <path key={`${personAId}-${personBId}`} className={`spouse-line ${faded ? 'generation-faded' : ''}`} d={`M ${a.x + CARD_W} ${a.y + CARD_H / 2} L ${b.x} ${b.y + CARD_H / 2}`} />
+    const legalFaded = legalFilter !== null && !matchedIds.has(personAId) && !matchedIds.has(personBId) && personAId !== viewerId && personBId !== viewerId
+    const focused = personAId === selectedId || personBId === selectedId
+    return <path key={`${personAId}-${personBId}`} className={`spouse-line ${faded ? 'generation-faded' : ''} ${legalFaded ? 'view-filtered-out' : ''} ${relationshipFocus ? (focused ? 'relationship-focused' : 'relationship-muted') : ''}`} d={`M ${a.x + CARD_W} ${a.y + CARD_H / 2} L ${b.x} ${b.y + CARD_H / 2}`} />
   })
   return <div
     ref={viewportRef}
@@ -258,9 +279,10 @@ function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer, onAdd }: {
         const isViewer = person.id === viewerId
         const isSelected = person.id === selectedId
         const filteredOut = legalFilter !== null && !matchedIds.has(person.id) && !isViewer
+        const outsideRelationshipFocus = relationshipFocus && !focusIds.has(person.id)
         return <button
           key={person.id}
-          className={`person-node ${isViewer ? 'viewer' : ''} ${isSelected ? 'selected' : ''} ${generationView !== null && person.generation !== generationView ? 'generation-faded' : ''} ${generationView === person.generation ? 'generation-highlighted' : ''} ${filteredOut ? 'legal-filtered-out' : ''} ${legalFilter && matchedIds.has(person.id) ? 'legal-filter-match' : ''}`}
+          className={`person-node ${isViewer ? 'viewer' : ''} ${isSelected ? 'selected' : ''} ${outsideRelationshipFocus ? 'relationship-muted' : ''} ${relationshipFocus && focusIds.has(person.id) ? 'relationship-focused' : ''} ${generationView !== null && person.generation !== generationView ? 'generation-faded' : ''} ${generationView === person.generation ? 'generation-highlighted' : ''} ${filteredOut ? 'legal-filtered-out' : ''} ${legalFilter && matchedIds.has(person.id) ? 'legal-filter-match' : ''}`}
           style={{ left: person.x, top: person.y }}
           onClick={() => onSelect(person.id)}
           onDoubleClick={() => onMakeViewer(person.id)}
@@ -272,39 +294,36 @@ function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer, onAdd }: {
         </button>
       })}
     </div>
+    <div className="relationship-focus-control">
+      <button type="button" className={relationshipFocus ? 'active' : ''} aria-pressed={relationshipFocus} onClick={() => setRelationshipFocus((current) => !current)}>
+        <span className="focus-switch" aria-hidden="true"><i/></span>
+        <span><strong>关系聚焦</strong><small>{relationshipFocus ? `仅突出与当前人物直接相连的 ${Math.max(0, focusIds.size - 1)} 人` : '当前显示全部连线'}</small></span>
+      </button>
+    </div>
     <div className="quick-filter" ref={filterRef}>
-      <button className={`quick-filter-trigger ${legalFilter ? 'active' : ''}`} type="button" aria-haspopup="menu" aria-expanded={filterMenuOpen} onClick={() => setFilterMenuOpen((current) => !current)}>
-        <span>{activeLegalOption ? activeLegalOption.label : '快速筛选'}</span>
+      <button className={`quick-filter-trigger ${legalFilter || generationView !== null ? 'active' : ''}`} type="button" aria-haspopup="dialog" aria-expanded={filterMenuOpen} onClick={() => setFilterMenuOpen((current) => !current)}>
+        <span>{activeLegalOption?.label ?? activeGenerationLabel ?? '视图'}</span>
         {legalFilter && <em>{matchedIds.size}</em>}
         <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 10 5 5 5-5"/></svg>
       </button>
-      {filterMenuOpen && <div className="quick-filter-menu" role="menu">
-        <div className="quick-filter-category" role="none">
-          <button type="button" role="menuitem" aria-haspopup="menu"><span><b>法律</b><small>以 {data.people.find((person) => person.id === viewerId)?.name} 为中心判定</small></span><i>›</i></button>
-          <div className="legal-filter-submenu" role="menu" aria-label="法律亲属范围">
-            <div className="filter-menu-heading"><span>法律亲属范围</span><small>依当前主视角计算</small></div>
-            {legalFilterOptions.map((option) => <button key={option.id} type="button" role="menuitemradio" aria-checked={legalFilter === option.id} className={legalFilter === option.id ? 'active' : ''} onClick={() => { setLegalFilter(option.id); setGenerationView(null); setFilterMenuOpen(false) }}>
-              <span><b>{option.label}</b><small>{option.description}</small></span><i>{legalFilter === option.id ? '✓' : ''}</i>
-            </button>)}
-            <div className="filter-data-note">“家庭成员”需要共同生活资料，暂不自动判定
-            </div>
-          </div>
+      {filterMenuOpen && <div className="quick-filter-menu" role="dialog" aria-label="选择画布视图">
+        <div className="view-menu-heading"><span>视图</span><small>选择后筛选自由画布</small></div>
+        <div className="view-tabs" role="tablist" aria-label="视图分类">
+          <button type="button" role="tab" aria-selected={viewTab === 'generation'} className={viewTab === 'generation' ? 'active' : ''} onClick={() => setViewTab('generation')}>辈分</button>
+          <button type="button" role="tab" aria-selected={viewTab === 'legal'} className={viewTab === 'legal' ? 'active' : ''} onClick={() => setViewTab('legal')}>法律</button>
         </div>
-        {legalFilter && <button className="clear-quick-filter" type="button" role="menuitem" onClick={() => { setLegalFilter(null); setFilterMenuOpen(false) }}>显示全部人物</button>}
+        {viewTab === 'generation' ? <div className="view-options" role="tabpanel">
+          <div className="view-context">按人物所在辈分定位并突出显示</div>
+          {generationOptions.map((label, generation) => <button key={label} type="button" className={generationView === generation ? 'active' : ''} aria-pressed={generationView === generation} onClick={() => { showGeneration(generation); setFilterMenuOpen(false) }}><span><b>{label}</b><small>定位画布中的{label}人物</small></span><i>{generationView === generation ? '✓' : ''}</i></button>)}
+        </div> : <div className="view-options" role="tabpanel">
+          <div className="view-context">以 {data.people.find((person) => person.id === viewerId)?.name} 为中心，依法律亲属范围判定</div>
+          {legalFilterOptions.map((option) => <button key={option.id} type="button" aria-pressed={legalFilter === option.id} className={legalFilter === option.id ? 'active' : ''} onClick={() => { setLegalFilter(option.id); setGenerationView(null); setFilterMenuOpen(false) }}><span><b>{option.label}</b><small>{option.description}</small></span><i>{legalFilter === option.id ? '✓' : ''}</i></button>)}
+          <div className="filter-data-note">“家庭成员”需要共同生活资料，暂不自动判定</div>
+        </div>}
+        {(legalFilter || generationView !== null) && <button className="clear-quick-filter" type="button" onClick={() => { setLegalFilter(null); setGenerationView(null); fitView(); setFilterMenuOpen(false) }}>显示全部人物</button>}
       </div>}
     </div>
-    {activeLegalOption && <div className="active-filter-note" role="status"><span>法律</span><strong>{activeLegalOption.label}</strong><small>命中 {matchedIds.size} 人</small><button type="button" onClick={() => setLegalFilter(null)} aria-label="清除法律筛选">×</button></div>}
-    <div className="generation-key" aria-label="按辈分查看人物">
-      <button className={`generation-key-title ${generationView === null ? 'active' : ''}`} type="button" onClick={() => showGeneration(null)} aria-pressed={generationView === null} title="显示全部人物">辈分</button>
-      {['祖辈', '父辈', '同辈', '晚辈'].map((label, generation) => <button
-        key={label}
-        type="button"
-        className={generationView === generation ? 'active' : ''}
-        aria-pressed={generationView === generation}
-        onClick={() => showGeneration(generation)}
-        title={`定位并突出显示${label}人物`}
-      >{label}</button>)}
-    </div>
+    {(activeLegalOption || activeGenerationLabel) && <div className="active-filter-note" role="status"><span>{activeLegalOption ? '法律' : '辈分'}</span><strong>{activeLegalOption?.label ?? activeGenerationLabel}</strong>{activeLegalOption && <small>命中 {matchedIds.size} 人</small>}<button type="button" onClick={() => { setLegalFilter(null); setGenerationView(null); fitView() }} aria-label="清除当前视图">×</button></div>}
     <div className="canvas-controls" aria-label="画布控制">
       <button onClick={() => zoomAtCenter(1.2)} aria-label="放大画布">＋</button>
       <span>{Math.round(camera.scale * 100)}%</span>

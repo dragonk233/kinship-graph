@@ -1,7 +1,7 @@
 import { FormEvent, PointerEvent, useCallback, useEffect, useMemo, useRef, useState, WheelEvent } from 'react'
 import { initialFamily } from './data'
 import { calculateKinship } from './kinship'
-import { speakMinnan } from './minnanSpeech'
+import { speakMinnan, stopMinnanSpeech } from './minnanSpeech'
 import type { FamilyData, Gender, Person } from './types'
 
 const HOME_ID = 'me'
@@ -178,22 +178,23 @@ function App() {
   }
 
 
-  const playMinnan = () => {
+  const playMinnan = async () => {
     if (result.minnan === '待补充' || result.minnan === '待家中长辈确认') {
       setToast('这个称呼还没有确认闽南语读音')
       window.setTimeout(() => setToast(''), 2200)
       return
     }
     setSpeaking(true)
-    const status = speakMinnan(result.minnan, () => setSpeaking(false))
-    if (status === 'unsupported') {
+    try {
+      await speakMinnan(result.minnan, () => setSpeaking(false))
+    } catch {
       setSpeaking(false)
-      setToast('当前设备未安装台湾闽南语（nan-TW）语音')
+      setToast('闽南语 TTS 尚未配置，请检查 .env.local')
       window.setTimeout(() => setToast(''), 2800)
     }
   }
 
-  useEffect(() => () => window.speechSynthesis?.cancel(), [])
+  useEffect(() => () => stopMinnanSpeech(), [])
 
   const addPerson = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()

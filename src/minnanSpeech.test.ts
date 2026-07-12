@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { findMinnanVoice, minnanTermText } from './minnanSpeech'
+import { findMinnanVoice, minnanRomanization, minnanTermText } from './minnanSpeech'
 
 describe('闽南语播报', () => {
   it('播报汉字称呼，不读括号内的注音', () => {
     expect(minnanTermText('阿爸（a-pah）')).toBe('阿爸')
+    expect(minnanRomanization('阿爸（a-pah）')).toBe('a-pah')
   })
 
   it('只选用 nan-TW 声音，不用普通话冒充', () => {

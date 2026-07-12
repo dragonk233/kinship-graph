@@ -87,6 +87,23 @@ export function addRelatedPerson(data: FamilyData, viewerId: string, person: Per
   return ensureSpouseCoParents(next)
 }
 
+export function replaceDirectRelations(data: FamilyData, personId: string, parentIds: string[], spouseIds: string[], childIds: string[]): FamilyData {
+  const validIds = new Set(data.people.map((person) => person.id))
+  const clean = (ids: string[]) => [...new Set(ids)].filter((id) => id !== personId && validIds.has(id))
+  return {
+    ...data,
+    parents: [
+      ...data.parents.filter((relation) => relation.parentId !== personId && relation.childId !== personId),
+      ...clean(parentIds).map((parentId) => ({ parentId, childId: personId })),
+      ...clean(childIds).map((childId) => ({ parentId: personId, childId })),
+    ],
+    spouses: [
+      ...data.spouses.filter((relation) => relation.personAId !== personId && relation.personBId !== personId),
+      ...clean(spouseIds).map((spouseId) => ({ personAId: personId, personBId: spouseId })),
+    ],
+  }
+}
+
 /**
  * In this family model a person with one recorded spouse shares their recorded
  * children with that spouse. Besides keeping new entries complete, this also

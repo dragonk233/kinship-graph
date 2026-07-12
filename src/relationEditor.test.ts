@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { sampleFamily as initialFamily } from './data'
-import { addRelatedPerson, anchorIdsFor, ensureSpouseCoParents, genderLabel, resolvePersonOverlaps, suggestedPersonPlacement } from './relationEditor'
+import { addRelatedPerson, anchorIdsFor, ensureSpouseCoParents, genderLabel, replaceDirectRelations, resolvePersonOverlaps, suggestedPersonPlacement } from './relationEditor'
 import { calculateKinship } from './kinship'
 import type { Person } from './types'
 
@@ -81,5 +81,12 @@ describe('完整关系录入', () => {
     const moved = repaired.people.find((person) => person.id === 'overlap')!
 
     expect([moved.x, moved.y]).not.toEqual([1140, 500])
+  })
+
+  it('可一次替换已有人物的父母、配偶和子女关系', () => {
+    const data = replaceDirectRelations(initialFamily, 'me', ['mother'], ['sister'], ['daughter'])
+    expect(data.parents.filter((item) => item.childId === 'me')).toEqual([{ parentId: 'mother', childId: 'me' }])
+    expect(data.parents.filter((item) => item.parentId === 'me')).toEqual([{ parentId: 'me', childId: 'daughter' }])
+    expect(data.spouses.some((item) => [item.personAId, item.personBId].includes('me'))).toBe(true)
   })
 })

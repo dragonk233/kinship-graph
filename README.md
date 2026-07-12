@@ -13,6 +13,8 @@ npm run dev
 
 浏览器打开：<http://127.0.0.1:5173>
 
+线上版本：<https://dragonk233.github.io/relation/>
+
 ## 当前可体验
 
 - 内置16人的四代示例家族；

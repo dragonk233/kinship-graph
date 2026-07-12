@@ -94,5 +94,5 @@ export function resolveMinnan(codes: string[]): MinnanPronunciation {
 
 export function recordingUrl(term: string): string | undefined {
   const file = minnanRecordings[term]?.file
-  return file ? `/audio/minnan/moe/${file}` : undefined
+  return file ? `${import.meta.env.BASE_URL}audio/minnan/moe/${file}` : undefined
 }

@@ -391,6 +391,7 @@ function App() {
   const [showHealth, setShowHealth] = useState(false)
   const [showReset, setShowReset] = useState(false)
   const [showShowcase, setShowShowcase] = useState(false)
+  const [showRoster, setShowRoster] = useState(false)
   const [pairAId, setPairAId] = useState(HOME_ID)
   const [pairBId, setPairBId] = useState(HOME_ID)
   const [relationKind, setRelationKind] = useState<RelationKind>('parent')
@@ -550,6 +551,34 @@ function App() {
     setShowEdit(false)
     setToast(`已更新 ${name} 的人物资料`)
     window.setTimeout(() => setToast(''), 2200)
+  }
+
+  const editRoster = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const form = new FormData(event.currentTarget)
+    const updates = new Map<string, Partial<Person>>()
+    for (const person of data.people) {
+      const name = String(form.get(`name:${person.id}`) || '').trim()
+      if (!name) {
+        setToast('姓名不能为空，请检查人物名册')
+        window.setTimeout(() => setToast(''), 2200)
+        return
+      }
+      const birthDate = String(form.get(`birthDate:${person.id}`) || '')
+      updates.set(person.id, {
+        name,
+        gender: String(form.get(`gender:${person.id}`)) as Gender,
+        ...(isBirthDate(birthDate) ? { birthDate, birthYear: birthYearFromDate(birthDate) } : {}),
+        note: String(form.get(`note:${person.id}`) || '').trim(),
+      })
+    }
+    updateData((current) => ({
+      ...current,
+      people: current.people.map((person) => ({ ...person, ...updates.get(person.id) })),
+    }))
+    setShowRoster(false)
+    setToast(`已一次更新 ${data.people.length} 位人物资料`)
+    window.setTimeout(() => setToast(''), 2400)
   }
 
   const openEdit = () => {
@@ -720,7 +749,7 @@ function App() {
 
     <main className={`workspace mobile-view-${mobileView}`}>
       <aside className="people-panel">
-        <div className="panel-heading"><div><span className="eyebrow">人物索引</span><h2>家中亲人</h2></div><div className="panel-heading-tools"><span className="count">{data.people.length}</span></div></div>
+        <div className="panel-heading"><div><span className="eyebrow">人物索引</span><h2>家中亲人</h2></div><div className="panel-heading-tools"><button className="roster-button" type="button" onClick={() => setShowRoster(true)}><Icon name="edit"/>连续编辑</button><span className="count">{data.people.length}</span></div></div>
         <label className="search"><Icon name="search"/><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索姓名或称呼"/></label>
         <div className="people-list">
           {filtered.map((person) => {
@@ -815,6 +844,19 @@ function App() {
         <span className="action-spacer"/>
         <button type="button" onClick={() => setShowEdit(false)}>取消</button><button className="primary-button" type="submit">保存修改</button>
       </div>
+    </form></div>}
+    {showRoster && <div className="modal-backdrop" onMouseDown={() => setShowRoster(false)}><form className="roster-modal" onSubmit={editRoster} onMouseDown={(event) => event.stopPropagation()}>
+      <div className="roster-heading"><div><span className="eyebrow">人物名册</span><h2>连续编辑人物资料</h2><p>直接在表格中修改，最后统一保存。亲属关系仍在人物详情中单独维护。</p></div><span>{data.people.length} 人</span></div>
+      <div className="roster-table-wrap"><table className="roster-table">
+        <thead><tr><th>人物</th><th>性别</th><th>公历生日</th><th>备注</th></tr></thead>
+        <tbody>{data.people.map((person) => <tr key={person.id}>
+          <td><div className="roster-person"><Avatar person={person} size="small"/><input name={`name:${person.id}`} defaultValue={person.name} aria-label={`${person.name}的姓名`} required/></div></td>
+          <td><select name={`gender:${person.id}`} defaultValue={person.gender} aria-label={`${person.name}的性别`}><option value="male">男性</option><option value="female">女性</option></select></td>
+          <td><input name={`birthDate:${person.id}`} type="date" defaultValue={person.birthDate ?? ''} aria-label={`${person.name}的公历生日`}/></td>
+          <td><input name={`note:${person.id}`} defaultValue={person.note ?? ''} placeholder="小名、籍贯、家庭记忆" aria-label={`${person.name}的备注`}/></td>
+        </tr>)}</tbody>
+      </table></div>
+      <div className="modal-actions"><button type="button" onClick={() => setShowRoster(false)}>取消</button><button className="primary-button" type="submit">统一保存</button></div>
     </form></div>}
     {showBackup && <div className="modal-backdrop" onMouseDown={() => setShowBackup(false)}><section className="backup-modal" role="dialog" aria-modal="true" aria-labelledby="backup-title" onMouseDown={(e) => e.stopPropagation()}>
       <div><span className="eyebrow">本地档案</span><h2 id="backup-title">备份与恢复家谱</h2><p>数据只保存在当前浏览器。定期导出一份精简备份，可以在清理浏览器或更换设备后恢复。</p></div>

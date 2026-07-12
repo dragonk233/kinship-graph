@@ -296,7 +296,12 @@ function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer, onAdd }: {
     const faded = generationView !== null && members.every((person) => !matchesGenerationView(person.generation))
     const legalFaded = legalFilter !== null && memberIds.every((id) => !matchedIds.has(id) && id !== viewerId)
     const focused = memberIds.includes(selectedId)
-    return <path key={key} className={`blood-line family-rail ${faded ? 'generation-faded' : ''} ${legalFaded ? 'view-filtered-out' : ''} ${relationshipFocus ? (focused ? 'relationship-focused' : 'relationship-muted') : ''}`} d={`${parentBranches} ${rail} ${childBranches}`} />
+    const connectionState = `${faded ? 'generation-faded' : ''} ${legalFaded ? 'view-filtered-out' : ''} ${relationshipFocus ? (focused ? 'relationship-focused' : 'relationship-muted') : ''}`
+    const junctionXs = [...new Set([...parentCenters, ...childCenters])]
+    return <g key={key} className={`family-connection ${connectionState}`}>
+      <path className="blood-line family-rail" d={`${parentBranches} ${rail} ${childBranches}`} />
+      {junctionXs.map((x) => <circle key={x} className="family-junction" cx={x} cy={railY} r={focused && relationshipFocus ? 1.3 : .85} />)}
+    </g>
   })
   const spouseLines = data.spouses.map(({ personAId, personBId }) => {
     const a = people.get(personAId)!; const b = people.get(personBId)!

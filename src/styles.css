@@ -117,13 +117,14 @@ h1, h2, p { margin: 0; }
 .graph-viewport.dragging { cursor: grabbing; }
 .graph-stage { position: absolute; width: 1400px; height: 830px; transform-origin: 0 0; will-change: transform; }
 .connections { position: absolute; inset: 0; width: 1400px; height: 830px; overflow: visible; pointer-events: none; }
-.blood-line { fill: none; stroke: rgba(141,74,60,.38); stroke-width: 1.4; }.family-rail { stroke-linecap: square; stroke-linejoin: round; }.spouse-line { fill: none; stroke: rgba(118,88,68,.55); stroke-width: 1.4; stroke-dasharray: 4 4; }
-.connections path { transition: opacity .22s ease, stroke-width .22s ease, stroke .22s ease; }.connections path.generation-faded { opacity: .12; }
-.connections path.view-filtered-out { opacity: .04; }
-.connections path.relationship-muted { opacity: .055; }
+.blood-line { fill: none; stroke: rgba(141,74,60,.38); stroke-width: 1.4; }.family-rail { stroke-linecap: square; stroke-linejoin: round; }.family-junction { fill: rgba(141,74,60,.38); }.spouse-line { fill: none; stroke: rgba(118,88,68,.55); stroke-width: 1.4; stroke-dasharray: 4 4; }
+.connections path, .connections circle, .connections g { transition: opacity .22s ease, stroke-width .22s ease, stroke .22s ease, fill .22s ease; }.connections .generation-faded { opacity: .12; }
+.connections .view-filtered-out { opacity: .04; }
+.connections .relationship-muted { opacity: .055; }
 .connections path.relationship-focused { opacity: 1; stroke-width: 2.35; }
 .connections path.blood-line.relationship-focused { stroke: rgba(165,58,43,.82); }
 .connections path.spouse-line.relationship-focused { stroke: rgba(102,76,57,.82); }
+.connections .family-connection.relationship-focused { opacity: 1; }.connections .family-connection.relationship-focused .blood-line { stroke: rgba(165,58,43,.82); stroke-width: 2.35; }.connections .family-connection.relationship-focused .family-junction { fill: rgba(165,58,43,.82); }
 .person-node { position: absolute; width: 148px; height: 94px; display: flex; align-items: center; gap: 10px; padding: 12px; border: 1px solid rgba(70,59,45,.14); border-radius: 8px; background: rgba(250,247,240,.96); box-shadow: 0 2px 10px rgba(54,43,31,.045); text-align: left; cursor: pointer; transition: opacity .2s ease, filter .2s ease, border .15s ease, background .15s ease, transform .15s ease, box-shadow .2s ease; z-index: 2; }
 .person-node:hover { transform: translateY(-2px); border-color: rgba(165,58,43,.32); background: #fdfaf4; }
 .person-node.selected { border-color: rgba(165,58,43,.5); box-shadow: 0 0 0 2px rgba(165,58,43,.08); }

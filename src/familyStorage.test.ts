@@ -27,6 +27,16 @@ describe('compactFamilyData', () => {
     expect(compactFamilyData(data).people[0].note).toBe('家庭记忆')
   })
 
+  it('preserves a complete Gregorian birthday in backups', () => {
+    const data: FamilyData = {
+      people: [{ id: 'me', name: '王晓明', gender: 'male', birthYear: 1999, birthDate: '1999-08-06', branch: '本家', generation: 2, x: 10, y: 20 }],
+      parents: [],
+      spouses: [],
+    }
+
+    expect(parseFamilyBackup(serializeFamilyBackup(data)).people[0].birthDate).toBe('1999-08-06')
+  })
+
   it('round-trips a compact versioned backup', () => {
     const data: FamilyData = {
       people: [{ id: 'me', name: '王晓明', gender: 'male', birthYear: 1999, branch: '本家', generation: 2, x: 10, y: 20, avatar: 'data:image/png;base64,large' }],

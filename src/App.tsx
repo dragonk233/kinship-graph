@@ -3,8 +3,11 @@ import { initialFamily } from './data'
 import { loadFamilyData, parseFamilyBackup, saveFamilyData, serializeFamilyBackup } from './familyStorage'
 import { calculateKinship } from './kinship'
 import { hasMinnanRecording, speakMinnan, stopMinnanSpeech } from './minnanSpeech'
+import { addRelatedPerson, anchorIdsFor, genderLabel, relationOptions, relationPreview, suggestedPersonPlacement } from './relationEditor'
+import type { DirectRelation, RelationKind } from './relationEditor'
 import type { FamilyData, Gender, Person } from './types'
 import { formatZodiac } from './zodiac'
+import { birthYearFromDate, formatLunarBirthday, formatSolarBirthday, isBirthDate } from './lunar'
 
 const HOME_ID = 'me'
 const CARD_W = 148
@@ -26,6 +29,19 @@ function Icon({ name }: { name: 'search' | 'home' | 'plus' | 'route' | 'person' 
 }
 
 function initials(name: string) { return name.slice(-2) }
+
+function BirthdayField({ defaultValue, required = false }: { defaultValue?: string; required?: boolean }) {
+  const [value, setValue] = useState(defaultValue ?? '')
+  const lunar = formatLunarBirthday(value)
+  return <label>公历生日
+    <input name="birthDate" type="date" min="1800-01-01" max="2100-12-31" value={value} required={required} onChange={(event) => setValue(event.target.value)}/>
+    <small className={`lunar-preview ${lunar ? '' : 'empty'}`}>{lunar ? `农历生日：${lunar}` : '选择公历日期后，将自动显示农历生日'}</small>
+  </label>
+}
+
+function birthdaySummary(person: Person) {
+  return person.birthDate && isBirthDate(person.birthDate) ? formatSolarBirthday(person.birthDate) : `${person.birthYear}年`
+}
 
 function Avatar({ person, size }: { person: Person; size?: 'small' | 'large' }) {
   const avatar = AVATAR_FEATURE_ENABLED ? person.avatar : undefined
@@ -139,7 +155,7 @@ function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer }: {
         >
           {isViewer && <span className="viewer-pin">我</span>}
           <Avatar person={person}/>
-          <span className="node-copy"><strong>{person.name}</strong><small>{result.mandarin[0]} · {formatZodiac(person.birthYear)}</small></span>
+          <span className="node-copy"><strong>{person.name}</strong><small>{result.mandarin[0]}</small></span>
         </button>
       })}
       <div className="generation-label g0">祖辈</div><div className="generation-label g1">父辈</div>
@@ -164,6 +180,10 @@ function App() {
   const [showAdd, setShowAdd] = useState(false)
   const [showEdit, setShowEdit] = useState(false)
   const [showBackup, setShowBackup] = useState(false)
+  const [showRelations, setShowRelations] = useState(false)
+  const [relationKind, setRelationKind] = useState<RelationKind>('parent')
+  const [relationAnchorId, setRelationAnchorId] = useState('')
+  const [directRelation, setDirectRelation] = useState<DirectRelation>('child')
   const [avatarDraft, setAvatarDraft] = useState<string | undefined>()
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
   const [toast, setToast] = useState('')
@@ -177,6 +197,8 @@ function App() {
   const filtered = data.people.filter((p) => p.name.includes(query) || calculateKinship(data, viewerId, p.id).mandarin.some((term) => term.includes(query)))
   const pathPeople = result.pathIds.map((id) => data.people.find((p) => p.id === id)!).filter(Boolean)
   const hasOfficialRecording = hasMinnanRecording(result.minnanAudioTerms)
+  const relationAnchors = anchorIdsFor(data, viewerId, relationKind)
+  const effectiveAnchorId = relationAnchors.includes(relationAnchorId) ? relationAnchorId : (relationAnchors[0] ?? '')
 
   useEffect(() => {
     let active = true
@@ -245,19 +267,32 @@ function App() {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
     const name = String(form.get('name') || '').trim()
-    const relation = String(form.get('relation'))
     const gender = String(form.get('gender')) as Gender
-    if (!name) return
+    const birthDate = String(form.get('birthDate') || '')
+    if (!name || !isBirthDate(birthDate)) return
     const id = `custom-${Date.now()}`
-    const base: Person = { id, name, gender, birthYear: Number(form.get('birthYear')) || 2000, branch: '本家', generation: 3, x: 1020, y: 710 }
-    setData((current) => {
-      const next = { ...current, people: [...current.people, base], parents: [...current.parents], spouses: [...current.spouses] }
-      if (relation === 'child') next.parents.push({ parentId: viewerId, childId: id })
-      if (relation === 'parent') next.parents.push({ parentId: id, childId: viewerId })
-      if (relation === 'spouse') next.spouses.push({ personAId: viewerId, personBId: id })
-      return next
-    })
+    const placement = suggestedPersonPlacement(data, viewerId, relationKind, effectiveAnchorId, directRelation)
+    const branch = (data.people.find((person) => person.id === effectiveAnchorId)?.branch ?? viewer.branch) as Person['branch']
+    const base: Person = { id, name, gender, birthYear: birthYearFromDate(birthDate), birthDate, branch, ...placement }
+    setData((current) => addRelatedPerson(current, viewerId, base, relationKind, effectiveAnchorId, directRelation))
     setSelectedId(id); setShowAdd(false)
+    setToast(`已添加${genderLabel(relationKind, gender)} ${name}`)
+    window.setTimeout(() => setToast(''), 2200)
+  }
+
+  const openAdd = () => {
+    setRelationKind('parent')
+    setRelationAnchorId('')
+    setDirectRelation('child')
+    setShowAdd(true)
+  }
+
+  const removeDirectRelation = (type: 'parent' | 'spouse', firstId: string, secondId: string) => {
+    setData((current) => type === 'parent'
+      ? { ...current, parents: current.parents.filter((item) => !(item.parentId === firstId && item.childId === secondId)) }
+      : { ...current, spouses: current.spouses.filter((item) => !((item.personAId === firstId && item.personBId === secondId) || (item.personAId === secondId && item.personBId === firstId))) })
+    setToast('关系已移除，人物资料仍然保留')
+    window.setTimeout(() => setToast(''), 2200)
   }
 
   const editPerson = (event: FormEvent<HTMLFormElement>) => {
@@ -265,10 +300,12 @@ function App() {
     const form = new FormData(event.currentTarget)
     const name = String(form.get('name') || '').trim()
     if (!name) return
+    const birthDate = String(form.get('birthDate') || '')
     const updated: Partial<Person> = {
       name,
       gender: String(form.get('gender')) as Gender,
-      birthYear: Number(form.get('birthYear')) || selected.birthYear,
+      birthYear: isBirthDate(birthDate) ? birthYearFromDate(birthDate) : selected.birthYear,
+      ...(isBirthDate(birthDate) ? { birthDate } : {}),
       branch: String(form.get('branch')) as Person['branch'],
       note: String(form.get('note') || '').trim(),
       ...(AVATAR_FEATURE_ENABLED ? { avatar: avatarDraft } : {}),
@@ -368,7 +405,7 @@ function App() {
           <i/>{saveState === 'loading' ? '读取本地档案' : saveState === 'saving' ? '正在保存' : saveState === 'saved' ? '已保存到本机' : '本地保存失败'}
         </span>
         {viewerId !== HOME_ID && data.people.some((person) => person.id === HOME_ID) && <button className="text-button" onClick={() => makeViewer(HOME_ID)}><Icon name="home"/>回到我</button>}
-        <button className="primary-button" onClick={() => setShowAdd(true)}><Icon name="plus"/>添加亲人</button>
+        <button className="primary-button" onClick={openAdd}><Icon name="plus"/>添加亲人</button>
       </div>
     </header>
 
@@ -381,7 +418,7 @@ function App() {
             const relation = calculateKinship(data, viewerId, person.id)
             return <button key={person.id} className={person.id === selectedId ? 'active' : ''} onClick={() => setSelectedId(person.id)}>
               <Avatar person={person} size="small"/>
-              <span><strong>{person.name}</strong><small>{person.birthYear} · {formatZodiac(person.birthYear)} · {person.branch}</small></span>
+              <span><strong>{person.name}</strong><small>{birthdaySummary(person)} · {formatZodiac(person.birthYear)} · {person.branch}</small></span>
               <em>{relation.mandarin[0]}</em>
             </button>
           })}
@@ -397,7 +434,7 @@ function App() {
       <aside className="detail-panel">
         <div className="detail-profile">
           <Avatar person={selected} size="large"/>
-          <div className="profile-copy"><span className="eyebrow">当前查看</span><h2>{selected.name}</h2><p>{selected.birthYear}年 · {formatZodiac(selected.birthYear)} · {selected.branch}</p></div>
+          <div className="profile-copy"><span className="eyebrow">当前查看</span><h2>{selected.name}</h2><p>{birthdaySummary(selected)} · {formatZodiac(selected.birthYear)} · {selected.branch}</p>{selected.birthDate && <p className="lunar-birthday">农历：{formatLunarBirthday(selected.birthDate)}</p>}</div>
           <button className="edit-profile-button" onClick={openEdit} aria-label={`编辑${selected.name}的资料`}><Icon name="edit"/>编辑</button>
         </div>
         {selected.id !== viewerId && <button className="perspective-button" onClick={() => makeViewer(selected.id)}><span>以此人为我</span><small>全图称呼将同步刷新</small></button>}
@@ -406,19 +443,41 @@ function App() {
         <section className="path-block"><div className="section-title"><span className="eyebrow">关系是怎么得出的</span><Icon name="route"/></div><p>{result.pathLabel}</p><div className="path-flow">
           {pathPeople.map((person, index) => <span key={person.id}><b>{person.name}</b>{index < pathPeople.length - 1 && <i>→</i>}</span>)}
         </div></section>
-        <section className="facts"><div><span>关系编码</span><strong>{result.codes.join(' · ') || 'self'}</strong></div><div><span>出生年份与生肖</span><strong>{selected.birthYear} · {formatZodiac(selected.birthYear)}</strong></div></section>
+        <button className="manage-relations-button" onClick={() => setShowRelations(true)}><Icon name="route"/><span><strong>维护直接关系</strong><small>查看或移除父母、子女与配偶连接</small></span></button>
         {selected.note && <section className="person-note"><span className="eyebrow">人物备注</span><p>{selected.note}</p></section>}
         <div className="accuracy-note"><strong>准确性提示</strong><p>闽南语称呼因泉州、厦门、漳州及家庭习惯而异。当前为演示词库，正式版允许逐条确认。</p></div>
       </aside>
     </main>
 
-    {showAdd && <div className="modal-backdrop" onMouseDown={() => setShowAdd(false)}><form className="add-modal" onSubmit={addPerson} onMouseDown={(e) => e.stopPropagation()}>
-      <div><span className="eyebrow">快速录入</span><h2>添加与 {viewer.name} 有关的亲人</h2><p>最小模型支持父母、配偶和子女，复杂关系会在下一阶段加入。</p></div>
+    {showAdd && <div className="modal-backdrop" onMouseDown={() => setShowAdd(false)}><form className="add-modal relation-modal" onSubmit={addPerson} onMouseDown={(e) => e.stopPropagation()}>
+      <div><span className="eyebrow">完整关系录入</span><h2>添加与 {viewer.name} 有关的亲人</h2><p>先选择现实中的称谓；系统会把它转换成可验证的父母、子女或配偶关系。</p></div>
+      <fieldset className="relation-picker"><legend>相对于 {viewer.name} 的关系</legend>
+        {[...new Set(relationOptions.map((option) => option.group))].map((group) => <div className="relation-group" key={group}><span>{group}</span><div>{relationOptions.filter((option) => option.group === group).map((option) => <button type="button" key={option.id} className={relationKind === option.id ? 'active' : ''} onClick={() => { setRelationKind(option.id); setRelationAnchorId('') }}><strong>{option.label}</strong><small>{option.description}</small></button>)}</div></div>)}
+      </fieldset>
+      {!['parent', 'child', 'spouse'].includes(relationKind) && <label>用于建立关系的已有亲人
+        <select value={effectiveAnchorId} onChange={(event) => setRelationAnchorId(event.target.value)} required>
+          {!relationAnchors.length && <option value="">暂无可连接人物</option>}
+          {relationAnchors.map((id) => { const person = data.people.find((item) => item.id === id)!; return <option key={id} value={id}>{person.name} · {calculateKinship(data, viewerId, id).mandarin[0]}</option> })}
+        </select>
+        {!relationAnchors.length && relationKind !== 'custom' && <small className="field-warning">图中还缺少建立此关系所需的中间亲人，请先添加或使用“精确连接”。</small>}
+      </label>}
+      {relationKind === 'custom' && <label>新人物是所选亲人的
+        <select value={directRelation} onChange={(event) => setDirectRelation(event.target.value as DirectRelation)}><option value="parent">父母</option><option value="child">子女</option><option value="spouse">配偶</option></select>
+      </label>}
+      <div className="relation-preview"><span>将写入的关系链</span><strong>{relationPreview(data, viewerId, relationKind, effectiveAnchorId, directRelation)}</strong></div>
       <label>姓名<input name="name" autoFocus placeholder="例如：王小安" required/></label>
-      <div className="form-row"><label>性别<select name="gender"><option value="male">男性</option><option value="female">女性</option></select></label><label>出生年份<input name="birthYear" type="number" defaultValue="2000"/></label></div>
-      <label>相对于当前主视角<select name="relation"><option value="child">子女</option><option value="parent">父母</option><option value="spouse">配偶</option></select></label>
-      <div className="modal-actions"><button type="button" onClick={() => setShowAdd(false)}>取消</button><button className="primary-button" type="submit">加入图谱</button></div>
+      <div className="form-row"><label>性别<select name="gender"><option value="male">男性</option><option value="female">女性</option></select></label><BirthdayField defaultValue="2000-01-01" required/></div>
+      <div className="modal-actions"><button type="button" onClick={() => setShowAdd(false)}>取消</button><button className="primary-button" type="submit" disabled={!['parent', 'child', 'spouse'].includes(relationKind) && !effectiveAnchorId}>加入图谱</button></div>
     </form></div>}
+    {showRelations && <div className="modal-backdrop" onMouseDown={() => setShowRelations(false)}><section className="relations-modal" role="dialog" aria-modal="true" aria-labelledby="relations-title" onMouseDown={(e) => e.stopPropagation()}>
+      <div><span className="eyebrow">关系维护</span><h2 id="relations-title">{selected.name} 的直接关系</h2><p>这里只显示家谱中实际保存的基础连接；移除连接不会删除人物。</p></div>
+      <div className="direct-relations">
+        {data.parents.filter((item) => item.parentId === selected.id || item.childId === selected.id).map((item) => { const otherId = item.parentId === selected.id ? item.childId : item.parentId; const other = data.people.find((person) => person.id === otherId)!; const label = item.parentId === selected.id ? `${other.name}的父母` : `${other.name}的子女`; return <div key={`${item.parentId}-${item.childId}`}><span><strong>{other.name}</strong><small>{label}</small></span><button type="button" onClick={() => removeDirectRelation('parent', item.parentId, item.childId)}>移除</button></div> })}
+        {data.spouses.filter((item) => item.personAId === selected.id || item.personBId === selected.id).map((item) => { const otherId = item.personAId === selected.id ? item.personBId : item.personAId; const other = data.people.find((person) => person.id === otherId)!; return <div key={`${item.personAId}-${item.personBId}`}><span><strong>{other.name}</strong><small>配偶</small></span><button type="button" onClick={() => removeDirectRelation('spouse', item.personAId, item.personBId)}>移除</button></div> })}
+        {!data.parents.some((item) => item.parentId === selected.id || item.childId === selected.id) && !data.spouses.some((item) => item.personAId === selected.id || item.personBId === selected.id) && <div className="empty-relations">这个人物暂时没有直接关系</div>}
+      </div>
+      <div className="modal-actions"><button type="button" onClick={() => setShowRelations(false)}>完成</button></div>
+    </section></div>}
     {showEdit && <div className="modal-backdrop" onMouseDown={() => setShowEdit(false)}><form className="add-modal edit-modal" onSubmit={editPerson} onMouseDown={(e) => e.stopPropagation()}>
       <div><span className="eyebrow">人物档案</span><h2>编辑 {selected.name}</h2><p>修改后会同步更新人物列表、家族画布和亲属称呼。</p></div>
       {AVATAR_FEATURE_ENABLED && <div className="avatar-editor">
@@ -430,7 +489,7 @@ function App() {
       <label>姓名<input name="name" autoFocus defaultValue={selected.name} placeholder="请输入真实姓名" required/></label>
       <div className="form-row">
         <label>性别<select name="gender" defaultValue={selected.gender}><option value="male">男性</option><option value="female">女性</option></select></label>
-        <label>出生年份<input name="birthYear" type="number" min="1800" max="2100" defaultValue={selected.birthYear}/></label>
+        <BirthdayField defaultValue={selected.birthDate}/>
       </div>
       <label>所属支系<select name="branch" defaultValue={selected.branch}><option value="父系">父系</option><option value="母系">母系</option><option value="本家">本家</option></select></label>
       <label>人物备注<textarea name="note" rows={3} defaultValue={selected.note ?? ''} placeholder="籍贯、小名、家庭记忆等"/></label>

@@ -19,6 +19,7 @@ function isFamilyData(value: unknown): value is FamilyData {
     && typeof person.name === 'string' && person.name.length > 0
     && (person.gender === 'male' || person.gender === 'female')
     && (person.branch === '父系' || person.branch === '母系' || person.branch === '本家')
+    && (person.birthDate === undefined || (typeof person.birthDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(person.birthDate)))
     && Number.isFinite(person.birthYear) && Number.isFinite(person.generation)
     && Number.isFinite(person.x) && Number.isFinite(person.y))
   if (!validPeople) return false
@@ -37,6 +38,7 @@ export function compactFamilyData(data: FamilyData): FamilyData {
       name: person.name,
       gender: person.gender,
       birthYear: person.birthYear,
+      ...(person.birthDate ? { birthDate: person.birthDate } : {}),
       branch: person.branch,
       generation: person.generation,
       x: person.x,

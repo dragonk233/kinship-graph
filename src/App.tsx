@@ -15,6 +15,10 @@ import type { LegalFilterId } from './legalKinship'
 const HOME_ID = 'me'
 const CARD_W = 148
 const CARD_H = 94
+// Connections are rendered behind the cards. Extending their endpoints a few
+// pixels into each card prevents the border/background antialiasing from
+// exposing a visible gap at the join.
+const CONNECTION_OVERLAP = 4
 const AVATAR_FEATURE_ENABLED = false
 
 function Icon({ name }: { name: 'search' | 'home' | 'plus' | 'route' | 'person' | 'edit' | 'speaker' | 'trash' }) {
@@ -290,17 +294,15 @@ function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer, onAdd }: {
     const trunkX = parentCenters.reduce((total, x) => total + x, 0) / parentCenters.length
     const railLeft = Math.min(trunkX, ...childCenters)
     const railRight = Math.max(trunkX, ...childCenters)
-    const parentBranches = parents.map((person) => `M ${person.x + CARD_W / 2} ${person.y + CARD_H} V ${railY}`).join(' ')
-    const childBranches = children.map((person) => `M ${person.x + CARD_W / 2} ${railY} V ${person.y}`).join(' ')
+    const parentBranches = parents.map((person) => `M ${person.x + CARD_W / 2} ${person.y + CARD_H - CONNECTION_OVERLAP} V ${railY}`).join(' ')
+    const childBranches = children.map((person) => `M ${person.x + CARD_W / 2} ${railY} V ${person.y + CONNECTION_OVERLAP}`).join(' ')
     const rail = `M ${railLeft} ${railY} H ${railRight}`
     const faded = generationView !== null && members.every((person) => !matchesGenerationView(person.generation))
     const legalFaded = legalFilter !== null && memberIds.every((id) => !matchedIds.has(id) && id !== viewerId)
     const focused = memberIds.includes(selectedId)
     const connectionState = `${faded ? 'generation-faded' : ''} ${legalFaded ? 'view-filtered-out' : ''} ${relationshipFocus ? (focused ? 'relationship-focused' : 'relationship-muted') : ''}`
-    const junctionXs = [...new Set([...parentCenters, ...childCenters])]
     return <g key={key} className={`family-connection ${connectionState}`}>
       <path className="blood-line family-rail" d={`${parentBranches} ${rail} ${childBranches}`} />
-      {junctionXs.map((x) => <circle key={x} className="family-junction" cx={x} cy={railY} r={focused && relationshipFocus ? 1.3 : .85} />)}
     </g>
   })
   const spouseLines = data.spouses.map(({ personAId, personBId }) => {
@@ -308,7 +310,8 @@ function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer, onAdd }: {
     const faded = generationView !== null && !matchesGenerationView(a.generation) && !matchesGenerationView(b.generation)
     const legalFaded = legalFilter !== null && !matchedIds.has(personAId) && !matchedIds.has(personBId) && personAId !== viewerId && personBId !== viewerId
     const focused = personAId === selectedId || personBId === selectedId
-    return <path key={`${personAId}-${personBId}`} className={`spouse-line ${faded ? 'generation-faded' : ''} ${legalFaded ? 'view-filtered-out' : ''} ${relationshipFocus ? (focused ? 'relationship-focused' : 'relationship-muted') : ''}`} d={`M ${a.x + CARD_W} ${a.y + CARD_H / 2} L ${b.x} ${b.y + CARD_H / 2}`} />
+    const [left, right] = a.x <= b.x ? [a, b] : [b, a]
+    return <path key={`${personAId}-${personBId}`} className={`spouse-line ${faded ? 'generation-faded' : ''} ${legalFaded ? 'view-filtered-out' : ''} ${relationshipFocus ? (focused ? 'relationship-focused' : 'relationship-muted') : ''}`} d={`M ${left.x + CARD_W - CONNECTION_OVERLAP} ${left.y + CARD_H / 2} L ${right.x + CONNECTION_OVERLAP} ${right.y + CARD_H / 2}`} />
   })
   return <div
     ref={viewportRef}

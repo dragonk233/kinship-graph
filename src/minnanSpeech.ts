@@ -1,62 +1,38 @@
+import { recordingUrl } from './minnan'
+
 let currentAudio: HTMLAudioElement | undefined
+let nextTimer: number | undefined
+let playbackId = 0
 
-export function minnanTermText(term: string): string {
-  return term.split('（')[0].trim()
+export function hasMinnanRecording(terms: string[]): boolean {
+  return terms.length > 0 && terms.every((term) => Boolean(recordingUrl(term)))
 }
 
-export function minnanRomanization(term: string): string | undefined {
-  return term.match(/（(.+?)）/)?.[1].trim()
-}
-
-export function findMinnanVoice(voices: SpeechSynthesisVoice[]): SpeechSynthesisVoice | undefined {
-  return voices.find((voice) => {
-    const language = voice.lang.toLowerCase().replace('_', '-')
-    return language === 'nan-tw' || language.startsWith('nan-')
-  })
-}
-
-function speakWithDevice(term: string, onEnd: () => void): boolean {
-  if (!('speechSynthesis' in window) || !('SpeechSynthesisUtterance' in window)) return false
-  const voice = findMinnanVoice(window.speechSynthesis.getVoices())
-  if (!voice) return false
-  const utterance = new SpeechSynthesisUtterance(minnanTermText(term))
-  utterance.lang = 'nan-TW'
-  utterance.voice = voice
-  utterance.rate = .82
-  utterance.onend = onEnd
-  utterance.onerror = onEnd
-  window.speechSynthesis.speak(utterance)
-  return true
-}
-
-export async function speakMinnan(term: string, onEnd: () => void): Promise<'service' | 'device'> {
+export async function speakMinnan(terms: string[], onEnd: () => void): Promise<void> {
   stopMinnanSpeech()
-  try {
-    const response = await fetch('/api/minnan-tts', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text: minnanTermText(term), romanization: minnanRomanization(term) }),
-    })
-    if (response.ok) {
-      const audio = new Audio(URL.createObjectURL(await response.blob()))
-      currentAudio = audio
-      audio.onended = onEnd
-      audio.onerror = onEnd
-      await audio.play()
-      return 'service'
+  if (!hasMinnanRecording(terms)) throw new Error('MINNAN_RECORDING_UNAVAILABLE')
+  const id = playbackId
+
+  const playAt = async (index: number): Promise<void> => {
+    if (id !== playbackId) return
+    if (index >= terms.length) { onEnd(); return }
+    const audio = new Audio(recordingUrl(terms[index])!)
+    currentAudio = audio
+    audio.onerror = onEnd
+    audio.onended = () => {
+      nextTimer = window.setTimeout(() => void playAt(index + 1), 180)
     }
-  } catch {
-    // The local/device voice remains a useful offline fallback.
+    await audio.play()
   }
-  if (speakWithDevice(term, onEnd)) return 'device'
-  throw new Error('MINNAN_TTS_UNAVAILABLE')
+  await playAt(0)
 }
 
 export function stopMinnanSpeech() {
-  window.speechSynthesis?.cancel()
-  if (currentAudio) {
-    currentAudio.pause()
-    if (currentAudio.src.startsWith('blob:')) URL.revokeObjectURL(currentAudio.src)
-    currentAudio = undefined
-  }
+  playbackId += 1
+  if (nextTimer) window.clearTimeout(nextTimer)
+  nextTimer = undefined
+  if (!currentAudio) return
+  currentAudio.pause()
+  currentAudio.currentTime = 0
+  currentAudio = undefined
 }

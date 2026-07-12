@@ -1,21 +1,12 @@
 import relationship from 'relationship.js'
 import type { FamilyData, Gender, KinshipResult, Person } from './types'
+import { resolveMinnan } from './minnan'
 
 interface Edge {
   to: string
   code: string
   label: string
   priority: number
-}
-
-const minnanTerms: Record<string, string> = {
-  '': '家己（ka-kī）', f: '阿爸（a-pah）', m: '阿母（a-bú）',
-  h: '翁（ang）', w: '某（bóo）', s: '后生（hāu-siⁿ）', d: '查某囝（cha-bó͘-kiáⁿ）',
-  ob: '阿兄（a-hiann）', lb: '小弟（sió-tī）', os: '阿姊（a-chí）', ls: '小妹（sió-mōe）',
-  'f,f': '阿公（a-kong）', 'f,m': '阿嬷（a-má）', 'm,f': '外公（gōa-kong）', 'm,m': '外嬷（gōa-má）',
-  'f,ob': '阿伯（a-peh）', 'f,lb': '阿叔（a-chek）', 'f,os': '阿姑（a-ko͘）', 'f,ls': '阿姑（a-ko͘）',
-  'm,ob': '阿舅（a-kū）', 'm,lb': '阿舅（a-kū）', 'm,os': '阿姨（a-î）', 'm,ls': '阿姨（a-î）',
-  's,d': '孙查某囝（sun cha-bó͘-kiáⁿ）', 'd,d': '外孙女（gōa-sun-lú）',
 }
 
 function personById(data: FamilyData, id: string): Person {
@@ -76,7 +67,10 @@ export function buildGraph(data: FamilyData): Map<string, Edge[]> {
 }
 
 export function calculateKinship(data: FamilyData, viewerId: string, targetId: string): KinshipResult {
-  if (viewerId === targetId) return { codes: [], pathIds: [viewerId], pathLabel: '自己', mandarin: ['自己'], minnan: minnanTerms[''] }
+  if (viewerId === targetId) {
+    const minnan = resolveMinnan([])
+    return { codes: [], pathIds: [viewerId], pathLabel: '自己', mandarin: ['自己'], minnan: minnan.label, minnanAudioTerms: minnan.audioTerms, minnanKind: minnan.kind }
+  }
   const graph = buildGraph(data)
   const queue: Array<{ id: string; codes: string[]; ids: string[]; labels: string[] }> = [{ id: viewerId, codes: [], ids: [viewerId], labels: [] }]
   const visited = new Map<string, number>([[viewerId, 0]])
@@ -94,16 +88,18 @@ export function calculateKinship(data: FamilyData, viewerId: string, targetId: s
       queue.push(next)
     }
   }
-  if (!found) return { codes: [], pathIds: [viewerId], pathLabel: '关系暂未连通', mandarin: ['未知关系'], minnan: '待补充' }
+  if (!found) return { codes: [], pathIds: [viewerId], pathLabel: '关系暂未连通', mandarin: ['未知关系'], minnan: '关系暂未连通', minnanAudioTerms: [], minnanKind: 'path' }
   const viewer = personById(data, viewerId)
-  const codeText = found.codes.join(',')
   const text = found.labels.join('的')
   const computed = relationship({ text, sex: sexCode(viewer.gender), optimal: true })
+  const minnan = resolveMinnan(found.codes)
   return {
     codes: found.codes,
     pathIds: found.ids,
     pathLabel: text,
     mandarin: computed.length ? computed : [text],
-    minnan: minnanTerms[codeText] ?? '待家中长辈确认',
+    minnan: minnan.label,
+    minnanAudioTerms: minnan.audioTerms,
+    minnanKind: minnan.kind,
   }
 }

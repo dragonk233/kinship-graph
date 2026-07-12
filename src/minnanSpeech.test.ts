@@ -1,18 +1,23 @@
 import { describe, expect, it } from 'vitest'
-import { findMinnanVoice, minnanRomanization, minnanTermText } from './minnanSpeech'
+import { minnanRecordings, resolveMinnan } from './minnan'
+import { hasMinnanRecording } from './minnanSpeech'
 
 describe('闽南语播报', () => {
-  it('播报汉字称呼，不读括号内的注音', () => {
-    expect(minnanTermText('阿爸（a-pah）')).toBe('阿爸')
-    expect(minnanRomanization('阿爸（a-pah）')).toBe('a-pah')
+  it('常见关系使用独立官方称呼', () => {
+    expect(resolveMinnan(['s', 'w']).label).toBe('新婦（sin-pū）')
+    expect(resolveMinnan(['d', 'h']).audioTerms).toEqual(['囝婿'])
   })
 
-  it('只选用 nan-TW 声音，不用普通话冒充', () => {
-    const voices = [
-      { lang: 'zh-TW', name: 'Mandarin' },
-      { lang: 'nan-TW', name: 'Taiwanese Hokkien' },
-    ] as SpeechSynthesisVoice[]
-    expect(findMinnanVoice(voices)?.name).toBe('Taiwanese Hokkien')
-    expect(findMinnanVoice(voices.slice(0, 1))).toBeUndefined()
+  it('复杂关系回退为可完整播报的关系路径', () => {
+    const result = resolveMinnan(['f', 'os', 'h', 'ob', 's'])
+    expect(result.kind).toBe('path')
+    expect(result.audioTerms).toEqual(['阿爸', '阿姊', '翁', '阿兄', '後生'])
+    expect(hasMinnanRecording(result.audioTerms)).toBe(true)
+  })
+
+  it('所有基础关系组件都有官方真人录音', () => {
+    const result = resolveMinnan(['f', 'm', 'h', 'w', 's', 'd', 'ob', 'lb', 'os', 'ls'])
+    expect(result.audioTerms).toHaveLength(10)
+    expect(result.audioTerms.every((term) => minnanRecordings[term])).toBe(true)
   })
 })

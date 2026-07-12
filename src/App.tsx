@@ -1,12 +1,14 @@
 import { FormEvent, PointerEvent, useCallback, useEffect, useMemo, useRef, useState, WheelEvent } from 'react'
 import { initialFamily } from './data'
+import { loadFamilyData, parseFamilyBackup, saveFamilyData, serializeFamilyBackup } from './familyStorage'
 import { calculateKinship } from './kinship'
-import { speakMinnan, stopMinnanSpeech } from './minnanSpeech'
+import { hasMinnanRecording, speakMinnan, stopMinnanSpeech } from './minnanSpeech'
 import type { FamilyData, Gender, Person } from './types'
 
 const HOME_ID = 'me'
 const CARD_W = 148
 const CARD_H = 94
+const AVATAR_FEATURE_ENABLED = false
 
 function Icon({ name }: { name: 'search' | 'home' | 'plus' | 'route' | 'person' | 'edit' | 'speaker' | 'trash' }) {
   const paths = {
@@ -25,8 +27,9 @@ function Icon({ name }: { name: 'search' | 'home' | 'plus' | 'route' | 'person' 
 function initials(name: string) { return name.slice(-2) }
 
 function Avatar({ person, size }: { person: Person; size?: 'small' | 'large' }) {
-  return <span className={`portrait ${size ?? ''} ${person.gender} ${person.avatar ? 'has-image' : ''}`}>
-    {person.avatar ? <img src={person.avatar} alt=""/> : initials(person.name)}
+  const avatar = AVATAR_FEATURE_ENABLED ? person.avatar : undefined
+  return <span className={`portrait ${size ?? ''} ${person.gender} ${avatar ? 'has-image' : ''}`}>
+    {avatar ? <img src={avatar} alt=""/> : initials(person.name)}
   </span>
 }
 
@@ -159,16 +162,57 @@ function App() {
   const [query, setQuery] = useState('')
   const [showAdd, setShowAdd] = useState(false)
   const [showEdit, setShowEdit] = useState(false)
+  const [showBackup, setShowBackup] = useState(false)
   const [avatarDraft, setAvatarDraft] = useState<string | undefined>()
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
   const [toast, setToast] = useState('')
   const [speaking, setSpeaking] = useState(false)
+  const [storageReady, setStorageReady] = useState(false)
+  const [saveState, setSaveState] = useState<'loading' | 'saving' | 'saved' | 'error'>('loading')
 
   const viewer = data.people.find((p) => p.id === viewerId)!
   const selected = data.people.find((p) => p.id === selectedId)!
   const result = calculateKinship(data, viewerId, selectedId)
   const filtered = data.people.filter((p) => p.name.includes(query) || calculateKinship(data, viewerId, p.id).mandarin.some((term) => term.includes(query)))
   const pathPeople = result.pathIds.map((id) => data.people.find((p) => p.id === id)!).filter(Boolean)
+  const hasOfficialRecording = hasMinnanRecording(result.minnanAudioTerms)
+
+  useEffect(() => {
+    let active = true
+    loadFamilyData()
+      .then((stored) => {
+        if (!active) return
+        if (stored) {
+          setData(stored)
+          const fallbackId = stored.people.some((person) => person.id === HOME_ID) ? HOME_ID : stored.people[0].id
+          setViewerId(fallbackId)
+          setSelectedId(stored.people.some((person) => person.id === 'father') ? 'father' : fallbackId)
+        }
+        setStorageReady(true)
+        setSaveState('saved')
+      })
+      .catch(() => {
+        if (!active) return
+        setStorageReady(true)
+        setSaveState('error')
+      })
+    return () => { active = false }
+  }, [])
+
+  useEffect(() => {
+    if (!storageReady) return
+    setSaveState('saving')
+    let active = true
+    const timer = window.setTimeout(() => {
+      saveFamilyData(data)
+        .then(() => { if (active) setSaveState('saved') })
+        .catch(() => { if (active) setSaveState('error') })
+    }, 250)
+    return () => {
+      active = false
+      window.clearTimeout(timer)
+    }
+  }, [data, storageReady])
 
   const makeViewer = (id: string) => {
     setViewerId(id); setSelectedId(id)
@@ -179,17 +223,17 @@ function App() {
 
 
   const playMinnan = async () => {
-    if (result.minnan === '待补充' || result.minnan === '待家中长辈确认') {
+    if (!result.minnanAudioTerms.length) {
       setToast('这个称呼还没有确认闽南语读音')
       window.setTimeout(() => setToast(''), 2200)
       return
     }
     setSpeaking(true)
     try {
-      await speakMinnan(result.minnan, () => setSpeaking(false))
+      await speakMinnan(result.minnanAudioTerms, () => setSpeaking(false))
     } catch {
       setSpeaking(false)
-      setToast('闽南语 TTS 尚未配置，请检查 .env.local')
+      setToast('这个称呼暂未收录官方真人音频')
       window.setTimeout(() => setToast(''), 2800)
     }
   }
@@ -226,7 +270,7 @@ function App() {
       birthYear: Number(form.get('birthYear')) || selected.birthYear,
       branch: String(form.get('branch')) as Person['branch'],
       note: String(form.get('note') || '').trim(),
-      avatar: avatarDraft,
+      ...(AVATAR_FEATURE_ENABLED ? { avatar: avatarDraft } : {}),
     }
     setData((current) => ({
       ...current,
@@ -280,11 +324,48 @@ function App() {
     window.setTimeout(() => setToast(''), 2400)
   }
 
+  const exportBackup = () => {
+    const blob = new Blob([serializeFamilyBackup(data)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `亲族图谱-${new Date().toISOString().slice(0, 10)}.json`
+    link.click()
+    URL.revokeObjectURL(url)
+    setToast('家谱备份已导出')
+    window.setTimeout(() => setToast(''), 2200)
+  }
+
+  const importBackup = async (file?: File) => {
+    if (!file) return
+    if (file.size > 1024 * 1024) {
+      setToast('备份文件不能超过 1MB')
+      window.setTimeout(() => setToast(''), 2600)
+      return
+    }
+    try {
+      const imported = parseFamilyBackup(await file.text())
+      const nextViewerId = imported.people.some((person) => person.id === HOME_ID) ? HOME_ID : imported.people[0].id
+      setData(imported)
+      setViewerId(nextViewerId)
+      setSelectedId(imported.people.some((person) => person.id === 'father') ? 'father' : nextViewerId)
+      setShowBackup(false)
+      setToast(`已恢复 ${imported.people.length} 位亲人的家谱备份`)
+      window.setTimeout(() => setToast(''), 2600)
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : '无法读取备份文件')
+      window.setTimeout(() => setToast(''), 2800)
+    }
+  }
+
   return <div className="app-shell">
     <header className="topbar">
       <div className="brand"><span className="brand-seal">亲</span><div><strong>亲族图谱</strong><small>称呼从关系里自然生长</small></div></div>
       <div className="viewpoint-chip"><span>当前主视角</span><strong>{viewer.name}</strong><em>{viewerId === HOME_ID ? '本人' : '代入视角'}</em></div>
       <div className="header-actions">
+        <span className={`save-status ${saveState}`} role="status" aria-live="polite">
+          <i/>{saveState === 'loading' ? '读取本地档案' : saveState === 'saving' ? '正在保存' : saveState === 'saved' ? '已保存到本机' : '本地保存失败'}
+        </span>
         {viewerId !== HOME_ID && data.people.some((person) => person.id === HOME_ID) && <button className="text-button" onClick={() => makeViewer(HOME_ID)}><Icon name="home"/>回到我</button>}
         <button className="primary-button" onClick={() => setShowAdd(true)}><Icon name="plus"/>添加亲人</button>
       </div>
@@ -292,7 +373,7 @@ function App() {
 
     <main className="workspace">
       <aside className="people-panel">
-        <div className="panel-heading"><div><span className="eyebrow">人物索引</span><h2>家中亲人</h2></div><span className="count">{data.people.length}</span></div>
+        <div className="panel-heading"><div><span className="eyebrow">人物索引</span><h2>家中亲人</h2></div><div className="panel-heading-tools"><button className="backup-button" onClick={() => setShowBackup(true)}>备份</button><span className="count">{data.people.length}</span></div></div>
         <label className="search"><Icon name="search"/><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="搜索姓名或称呼"/></label>
         <div className="people-list">
           {filtered.map((person) => {
@@ -320,7 +401,7 @@ function App() {
         </div>
         {selected.id !== viewerId && <button className="perspective-button" onClick={() => makeViewer(selected.id)}><span>以此人为我</span><small>全图称呼将同步刷新</small></button>}
         <section className="term-block"><span className="eyebrow">现实中如何称呼</span><div className="main-term">{result.mandarin[0]}</div>{result.mandarin.length > 1 && <p>也可能称作：{result.mandarin.slice(1).join('、')}</p>}</section>
-        <section className="dialect-block"><div><span className="eyebrow">闽南语 · 示范词库</span><strong>{result.minnan}</strong></div><button className={`speak-button ${speaking ? 'speaking' : ''}`} onClick={playMinnan} disabled={speaking} aria-label={`用闽南语播报${result.minnan}`}><Icon name="speaker"/>{speaking ? '播报中' : '播报'}</button></section>
+        <section className="dialect-block"><div><span className="eyebrow">闽南语 · {result.minnanKind === 'term' ? '官方称呼' : '关系路径读法'}</span><strong>{result.minnan}</strong><a href="https://sutian.moe.edu.tw/" target="_blank" rel="noreferrer">音频来源：教育部《臺灣台语常用词辭典》</a></div><button className={`speak-button ${speaking ? 'speaking' : ''}`} onClick={playMinnan} disabled={speaking || !hasOfficialRecording} aria-label={`用闽南语播报${result.minnan}`} title={result.minnanKind === 'term' ? '播放教育部官方真人发音' : '逐段播放官方词条发音'}><Icon name="speaker"/>{speaking ? '播报中' : hasOfficialRecording ? '播报' : '暂无音频'}</button></section>
         <section className="path-block"><div className="section-title"><span className="eyebrow">关系是怎么得出的</span><Icon name="route"/></div><p>{result.pathLabel}</p><div className="path-flow">
           {pathPeople.map((person, index) => <span key={person.id}><b>{person.name}</b>{index < pathPeople.length - 1 && <i>→</i>}</span>)}
         </div></section>
@@ -339,12 +420,12 @@ function App() {
     </form></div>}
     {showEdit && <div className="modal-backdrop" onMouseDown={() => setShowEdit(false)}><form className="add-modal edit-modal" onSubmit={editPerson} onMouseDown={(e) => e.stopPropagation()}>
       <div><span className="eyebrow">人物档案</span><h2>编辑 {selected.name}</h2><p>修改后会同步更新人物列表、家族画布和亲属称呼。</p></div>
-      <div className="avatar-editor">
+      {AVATAR_FEATURE_ENABLED && <div className="avatar-editor">
         <Avatar person={{ ...selected, avatar: avatarDraft }} size="large"/>
         <div className="avatar-editor-copy"><strong>人物头像</strong><small>支持 JPG、PNG、WebP，文件不超过 5MB</small>
           <div className="avatar-editor-actions"><label className="upload-avatar-button">{avatarDraft ? '更换图片' : '上传图片'}<input type="file" accept="image/*" onChange={(event) => { uploadAvatar(event.target.files?.[0]); event.currentTarget.value = '' }}/></label>{avatarDraft && <button type="button" onClick={() => setAvatarDraft(undefined)}>移除头像</button>}</div>
         </div>
-      </div>
+      </div>}
       <label>姓名<input name="name" autoFocus defaultValue={selected.name} placeholder="请输入真实姓名" required/></label>
       <div className="form-row">
         <label>性别<select name="gender" defaultValue={selected.gender}><option value="male">男性</option><option value="female">女性</option></select></label>
@@ -359,6 +440,14 @@ function App() {
         <button type="button" onClick={() => setShowEdit(false)}>取消</button><button className="primary-button" type="submit">保存修改</button>
       </div>
     </form></div>}
+    {showBackup && <div className="modal-backdrop" onMouseDown={() => setShowBackup(false)}><section className="backup-modal" role="dialog" aria-modal="true" aria-labelledby="backup-title" onMouseDown={(e) => e.stopPropagation()}>
+      <div><span className="eyebrow">本地档案</span><h2 id="backup-title">备份与恢复家谱</h2><p>数据只保存在当前浏览器。定期导出一份精简备份，可以在清理浏览器或更换设备后恢复。</p></div>
+      <div className="backup-options">
+        <section><strong>导出当前家谱</strong><p>下载不含头像和历史记录的紧凑 JSON 文件。</p><button type="button" onClick={exportBackup}>导出备份</button></section>
+        <section><strong>从备份恢复</strong><p>导入会覆盖当前家谱，文件必须来自本应用且不超过 1MB。</p><label className="import-backup-button">选择备份文件<input type="file" accept="application/json,.json" onChange={(event) => { void importBackup(event.target.files?.[0]); event.currentTarget.value = '' }}/></label></section>
+      </div>
+      <div className="modal-actions"><button type="button" onClick={() => setShowBackup(false)}>关闭</button></div>
+    </section></div>}
     {deleteTarget && <div className="modal-backdrop" onMouseDown={() => setDeleteTargetId(null)}><section className="confirm-modal" role="alertdialog" aria-modal="true" aria-labelledby="delete-person-title" onMouseDown={(e) => e.stopPropagation()}>
       <div className="danger-mark"><Icon name="trash"/></div>
       <div><span className="eyebrow">删除人物</span><h2 id="delete-person-title">确认删除 {deleteTarget.name}？</h2><p>人物资料及其父母、子女、配偶关系将一并删除，此操作无法撤销。</p></div>

@@ -35,4 +35,6 @@ export interface KinshipResult {
   pathLabel: string
   mandarin: string[]
   minnan: string
+  minnanAudioTerms: string[]
+  minnanKind: 'term' | 'path'
 }

@@ -264,12 +264,39 @@ function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer, onAdd }: {
     dragRef.current = null
     setDragging(false)
   }
-  const parentLines = data.parents.map(({ parentId, childId }) => {
-    const p = people.get(parentId)!; const c = people.get(childId)!
-    const faded = generationView !== null && !matchesGenerationView(p.generation) && !matchesGenerationView(c.generation)
-    const legalFaded = legalFilter !== null && !matchedIds.has(parentId) && !matchedIds.has(childId) && parentId !== viewerId && childId !== viewerId
-    const focused = parentId === selectedId || childId === selectedId
-    return <path key={`${parentId}-${childId}`} className={`blood-line ${faded ? 'generation-faded' : ''} ${legalFaded ? 'view-filtered-out' : ''} ${relationshipFocus ? (focused ? 'relationship-focused' : 'relationship-muted') : ''}`} d={`M ${p.x + CARD_W / 2} ${p.y + CARD_H} C ${p.x + CARD_W / 2} ${p.y + 145}, ${c.x + CARD_W / 2} ${c.y - 50}, ${c.x + CARD_W / 2} ${c.y}`} />
+  const parentGroups = new Map<string, { parentIds: string[]; childIds: string[] }>()
+  const parentsByChild = new Map<string, string[]>()
+  data.parents.forEach(({ parentId, childId }) => {
+    parentsByChild.set(childId, [...(parentsByChild.get(childId) ?? []), parentId])
+  })
+  parentsByChild.forEach((parentIds, childId) => {
+    const sortedParentIds = [...new Set(parentIds)].sort()
+    const key = sortedParentIds.join('|')
+    const group = parentGroups.get(key) ?? { parentIds: sortedParentIds, childIds: [] }
+    group.childIds.push(childId)
+    parentGroups.set(key, group)
+  })
+  const parentLines = [...parentGroups.entries()].map(([key, { parentIds, childIds }]) => {
+    const parents = parentIds.map((id) => people.get(id)).filter(Boolean) as Person[]
+    const children = childIds.map((id) => people.get(id)).filter(Boolean) as Person[]
+    if (!parents.length || !children.length) return null
+    const memberIds = [...parentIds, ...childIds]
+    const members = [...parents, ...children]
+    const parentBottom = Math.max(...parents.map((person) => person.y + CARD_H))
+    const childTop = Math.min(...children.map((person) => person.y))
+    const railY = parentBottom + Math.max(8, (childTop - parentBottom) / 2)
+    const parentCenters = parents.map((person) => person.x + CARD_W / 2)
+    const childCenters = children.map((person) => person.x + CARD_W / 2)
+    const trunkX = parentCenters.reduce((total, x) => total + x, 0) / parentCenters.length
+    const railLeft = Math.min(trunkX, ...childCenters)
+    const railRight = Math.max(trunkX, ...childCenters)
+    const parentBranches = parents.map((person) => `M ${person.x + CARD_W / 2} ${person.y + CARD_H} V ${railY}`).join(' ')
+    const childBranches = children.map((person) => `M ${person.x + CARD_W / 2} ${railY} V ${person.y}`).join(' ')
+    const rail = `M ${railLeft} ${railY} H ${railRight}`
+    const faded = generationView !== null && members.every((person) => !matchesGenerationView(person.generation))
+    const legalFaded = legalFilter !== null && memberIds.every((id) => !matchedIds.has(id) && id !== viewerId)
+    const focused = memberIds.includes(selectedId)
+    return <path key={key} className={`blood-line family-rail ${faded ? 'generation-faded' : ''} ${legalFaded ? 'view-filtered-out' : ''} ${relationshipFocus ? (focused ? 'relationship-focused' : 'relationship-muted') : ''}`} d={`${parentBranches} ${rail} ${childBranches}`} />
   })
   const spouseLines = data.spouses.map(({ personAId, personBId }) => {
     const a = people.get(personAId)!; const b = people.get(personBId)!

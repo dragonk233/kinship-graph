@@ -117,7 +117,7 @@ h1, h2, p { margin: 0; }
 .graph-viewport.dragging { cursor: grabbing; }
 .graph-stage { position: absolute; width: 1400px; height: 830px; transform-origin: 0 0; will-change: transform; }
 .connections { position: absolute; inset: 0; width: 1400px; height: 830px; overflow: visible; pointer-events: none; }
-.blood-line { fill: none; stroke: rgba(141,74,60,.38); stroke-width: 1.4; }.spouse-line { fill: none; stroke: rgba(118,88,68,.55); stroke-width: 1.4; stroke-dasharray: 4 4; }
+.blood-line { fill: none; stroke: rgba(141,74,60,.38); stroke-width: 1.4; }.family-rail { stroke-linecap: square; stroke-linejoin: round; }.spouse-line { fill: none; stroke: rgba(118,88,68,.55); stroke-width: 1.4; stroke-dasharray: 4 4; }
 .connections path { transition: opacity .22s ease, stroke-width .22s ease, stroke .22s ease; }.connections path.generation-faded { opacity: .12; }
 .connections path.view-filtered-out { opacity: .04; }
 .connections path.relationship-muted { opacity: .055; }

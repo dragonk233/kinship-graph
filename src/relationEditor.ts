@@ -152,7 +152,14 @@ export function resolvePersonOverlaps(data: FamilyData): FamilyData {
   return changed ? { ...data, people } : data
 }
 
-export function genderLabel(kind: RelationKind, gender: Gender) {
+export function genderLabel(kind: RelationKind, gender: Gender, viewer?: Person, newcomer?: Person) {
+  if (kind === 'sibling' && viewer && newcomer) {
+    const viewerBirthday = viewer.birthDate ?? `${viewer.birthYear}-01-01`
+    const newcomerBirthday = newcomer.birthDate ?? `${newcomer.birthYear}-01-01`
+    const older = newcomerBirthday < viewerBirthday
+    if (gender === 'male') return older ? '哥哥' : '弟弟'
+    return older ? '姐姐' : '妹妹'
+  }
   const labels: Partial<Record<RelationKind, [string, string]>> = {
     parent: ['父亲', '母亲'], child: ['儿子', '女儿'], spouse: ['丈夫', '妻子'],
     sibling: ['兄弟', '姐妹'], grandparent: ['祖父／外祖父', '祖母／外祖母'],

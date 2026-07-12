@@ -275,7 +275,7 @@ function App() {
     const base: Person = { id, name, gender, birthYear: birthYearFromDate(birthDate), birthDate, ...placement }
     setData((current) => addRelatedPerson(current, viewerId, base, relationKind, effectiveAnchorId, directRelation))
     setSelectedId(id); setShowAdd(false)
-    setToast(`已添加${genderLabel(relationKind, gender)} ${name}`)
+    setToast(`已添加${genderLabel(relationKind, gender, viewer, base)} ${name}`)
     window.setTimeout(() => setToast(''), 2200)
   }
 

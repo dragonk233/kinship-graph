@@ -19,10 +19,22 @@ function sexCode(gender: Gender): 0 | 1 {
   return gender === 'male' ? 1 : 0
 }
 
+function birthdayKey(person: Person): string {
+  return person.birthDate ?? `${person.birthYear}-01-01`
+}
+
 function siblingCode(from: Person, to: Person): string {
-  const older = to.birthYear < from.birthYear
+  const older = birthdayKey(to) < birthdayKey(from)
   if (to.gender === 'male') return older ? 'ob' : 'lb'
   return older ? 'os' : 'ls'
+}
+
+function narrowBySeniority(candidates: string[], viewer: Person, relative: Person): string[] {
+  if (candidates.length < 2 || viewer.generation !== relative.generation) return candidates
+  const older = candidates.filter((label) => /哥|姐|姊|嫂/.test(label) && !/弟|妹/.test(label))
+  const younger = candidates.filter((label) => /弟|妹/.test(label) && !/哥|姐|姊|嫂/.test(label))
+  if (!older.length || !younger.length || birthdayKey(viewer) === birthdayKey(relative)) return candidates
+  return birthdayKey(relative) < birthdayKey(viewer) ? older : younger
 }
 
 export function buildGraph(data: FamilyData): Map<string, Edge[]> {
@@ -92,12 +104,19 @@ export function calculateKinship(data: FamilyData, viewerId: string, targetId: s
   const viewer = personById(data, viewerId)
   const text = found.labels.join('的')
   const computed = relationship({ text, sex: sexCode(viewer.gender), optimal: true })
+  // If the target is a spouse of a same-generation blood relative, the blood
+  // relative's age determines 嫂/弟媳、姐夫/妹夫 rather than the spouse's own age.
+  const finalCode = found.codes.at(-1)
+  const seniorityId = (finalCode === 'h' || finalCode === 'w') && found.ids.length > 1
+    ? found.ids.at(-2)!
+    : targetId
+  const mandarin = narrowBySeniority(computed, viewer, personById(data, seniorityId))
   const minnan = resolveMinnan(found.codes)
   return {
     codes: found.codes,
     pathIds: found.ids,
     pathLabel: text,
-    mandarin: computed.length ? computed : [text],
+    mandarin: mandarin.length ? mandarin : [text],
     minnan: minnan.label,
     minnanAudioTerms: minnan.audioTerms,
     minnanKind: minnan.kind,

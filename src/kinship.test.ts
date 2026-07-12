@@ -23,4 +23,10 @@ describe('亲属关系推导', () => {
     expect(calculateKinship(initialFamily, 'me', 'sister').codes).toEqual(['os'])
     expect(calculateKinship(initialFamily, 'sister', 'me').codes).toEqual(['lb'])
   })
+
+  it('使用生日收窄堂表同辈的长幼称谓', () => {
+    expect(calculateKinship(initialFamily, 'me', 'cousin').mandarin).toEqual(['堂哥'])
+    expect(calculateKinship(initialFamily, 'me', 'maternal-cousin').mandarin).toEqual(['舅表妹'])
+    expect(calculateKinship(initialFamily, 'cousin', 'me').mandarin).toEqual(['堂弟'])
+  })
 })

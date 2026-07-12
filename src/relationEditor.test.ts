@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { initialFamily } from './data'
-import { addRelatedPerson, anchorIdsFor, resolvePersonOverlaps, suggestedPersonPlacement } from './relationEditor'
+import { addRelatedPerson, anchorIdsFor, genderLabel, resolvePersonOverlaps, suggestedPersonPlacement } from './relationEditor'
 import { calculateKinship } from './kinship'
 import type { Person } from './types'
 
@@ -11,6 +11,18 @@ describe('完整关系录入', () => {
     expect(anchorIdsFor(initialFamily, 'me', 'sibling')).toEqual(expect.arrayContaining(['father', 'mother']))
     const data = addRelatedPerson(initialFamily, 'me', newcomer, 'sibling', 'father')
     expect(calculateKinship(data, 'me', 'new').codes).toEqual(['lb'])
+  })
+
+  it('同年出生的兄弟姐妹按完整生日判断长幼', () => {
+    const olderBrother = { ...newcomer, birthYear: 1999, birthDate: '1999-03-01' }
+    const youngerSister = { ...newcomer, id: 'younger', gender: 'female' as const, birthYear: 1999, birthDate: '1999-12-01' }
+    const viewer = { ...initialFamily.people.find((person) => person.id === 'me')!, birthDate: '1999-08-06' }
+    const family = { ...initialFamily, people: initialFamily.people.map((person) => person.id === 'me' ? viewer : person) }
+
+    expect(calculateKinship(addRelatedPerson(family, 'me', olderBrother, 'sibling', 'father'), 'me', 'new').codes).toEqual(['ob'])
+    expect(calculateKinship(addRelatedPerson(family, 'me', youngerSister, 'sibling', 'father'), 'me', 'younger').codes).toEqual(['ls'])
+    expect(genderLabel('sibling', 'male', viewer, olderBrother)).toBe('哥哥')
+    expect(genderLabel('sibling', 'female', viewer, youngerSister)).toBe('妹妹')
   })
 
   it('通过父母录入祖辈', () => {

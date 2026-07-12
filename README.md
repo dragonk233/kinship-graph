@@ -1,4 +1,4 @@
-# 亲族图谱 · 最小可运行模型
+# Kinship Graph · 亲族图谱
 
 这是一个验证核心体验的本地网页原型：记录家族人物，从任意人物视角重新计算普通话和闽南语称呼。
 
@@ -13,7 +13,7 @@ npm run dev
 
 浏览器打开：<http://127.0.0.1:5173>
 
-线上版本：<https://dragonk233.github.io/relation/>
+线上版本：<https://dragonk233.github.io/kinship-graph/>
 
 ## 当前可体验
 

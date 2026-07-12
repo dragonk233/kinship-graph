@@ -4,6 +4,7 @@ import { loadFamilyData, parseFamilyBackup, saveFamilyData, serializeFamilyBacku
 import { calculateKinship } from './kinship'
 import { hasMinnanRecording, speakMinnan, stopMinnanSpeech } from './minnanSpeech'
 import type { FamilyData, Gender, Person } from './types'
+import { formatZodiac } from './zodiac'
 
 const HOME_ID = 'me'
 const CARD_W = 148
@@ -138,7 +139,7 @@ function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer }: {
         >
           {isViewer && <span className="viewer-pin">我</span>}
           <Avatar person={person}/>
-          <span className="node-copy"><strong>{person.name}</strong><small>{result.mandarin[0]}</small></span>
+          <span className="node-copy"><strong>{person.name}</strong><small>{result.mandarin[0]} · {formatZodiac(person.birthYear)}</small></span>
         </button>
       })}
       <div className="generation-label g0">祖辈</div><div className="generation-label g1">父辈</div>
@@ -380,7 +381,7 @@ function App() {
             const relation = calculateKinship(data, viewerId, person.id)
             return <button key={person.id} className={person.id === selectedId ? 'active' : ''} onClick={() => setSelectedId(person.id)}>
               <Avatar person={person} size="small"/>
-              <span><strong>{person.name}</strong><small>{person.birthYear} · {person.branch}</small></span>
+              <span><strong>{person.name}</strong><small>{person.birthYear} · {formatZodiac(person.birthYear)} · {person.branch}</small></span>
               <em>{relation.mandarin[0]}</em>
             </button>
           })}
@@ -396,7 +397,7 @@ function App() {
       <aside className="detail-panel">
         <div className="detail-profile">
           <Avatar person={selected} size="large"/>
-          <div className="profile-copy"><span className="eyebrow">当前查看</span><h2>{selected.name}</h2><p>{selected.birthYear}年 · {selected.branch}</p></div>
+          <div className="profile-copy"><span className="eyebrow">当前查看</span><h2>{selected.name}</h2><p>{selected.birthYear}年 · {formatZodiac(selected.birthYear)} · {selected.branch}</p></div>
           <button className="edit-profile-button" onClick={openEdit} aria-label={`编辑${selected.name}的资料`}><Icon name="edit"/>编辑</button>
         </div>
         {selected.id !== viewerId && <button className="perspective-button" onClick={() => makeViewer(selected.id)}><span>以此人为我</span><small>全图称呼将同步刷新</small></button>}
@@ -405,7 +406,7 @@ function App() {
         <section className="path-block"><div className="section-title"><span className="eyebrow">关系是怎么得出的</span><Icon name="route"/></div><p>{result.pathLabel}</p><div className="path-flow">
           {pathPeople.map((person, index) => <span key={person.id}><b>{person.name}</b>{index < pathPeople.length - 1 && <i>→</i>}</span>)}
         </div></section>
-        <section className="facts"><div><span>关系编码</span><strong>{result.codes.join(' · ') || 'self'}</strong></div><div><span>出生年份</span><strong>{selected.birthYear}</strong></div></section>
+        <section className="facts"><div><span>关系编码</span><strong>{result.codes.join(' · ') || 'self'}</strong></div><div><span>出生年份与生肖</span><strong>{selected.birthYear} · {formatZodiac(selected.birthYear)}</strong></div></section>
         {selected.note && <section className="person-note"><span className="eyebrow">人物备注</span><p>{selected.note}</p></section>}
         <div className="accuracy-note"><strong>准确性提示</strong><p>闽南语称呼因泉州、厦门、漳州及家庭习惯而异。当前为演示词库，正式版允许逐条确认。</p></div>
       </aside>

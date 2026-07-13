@@ -124,6 +124,14 @@ export function addBasicRelationship(data: FamilyData, subjectId: string, anchor
   }
 }
 
+export function removeBasicRelationship(data: FamilyData, subjectId: string, anchorId: string, relation: BasicRelation): FamilyData {
+  if (relation === 'parent') return { ...data, parents: data.parents.filter((item) => !(item.parentId === subjectId && item.childId === anchorId)) }
+  if (relation === 'child') return { ...data, parents: data.parents.filter((item) => !(item.parentId === anchorId && item.childId === subjectId)) }
+  if (relation === 'spouse') return { ...data, spouses: data.spouses.filter((item) => !([item.personAId, item.personBId].includes(subjectId) && [item.personAId, item.personBId].includes(anchorId))) }
+  const sharedParents = new Set(parentIds(data, anchorId))
+  return { ...data, parents: data.parents.filter((item) => !(item.childId === subjectId && sharedParents.has(item.parentId))) }
+}
+
 export function basicRelationshipPreview(data: FamilyData, subjectName: string, anchorId: string, relation: BasicRelation) {
   const anchor = data.people.find((person) => person.id === anchorId)
   if (!anchor) return '请先选择一位支点人物'

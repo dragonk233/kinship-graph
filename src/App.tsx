@@ -3,7 +3,7 @@ import { initialFamily, showcaseFamily } from './data'
 import { clearFamilyData, loadFamilyData, parseFamilyBackup, saveFamilyData, serializeFamilyBackup, serializeFamilyMarkdown } from './familyStorage'
 import { calculateKinship } from './kinship'
 import { hasMinnanRecording, speakMinnan, stopMinnanSpeech } from './minnanSpeech'
-import { addBasicRelationship, basicRelationshipPreview, ensureSpouseCoParents, resolvePersonOverlaps, suggestedBasicPlacement } from './relationEditor'
+import { addBasicRelationship, basicRelationshipPreview, ensureSpouseCoParents, removeBasicRelationship, resolvePersonOverlaps, suggestedBasicPlacement } from './relationEditor'
 import type { BasicRelation } from './relationEditor'
 import type { FamilyData, Gender, Person } from './types'
 import { formatZodiac } from './zodiac'
@@ -140,6 +140,39 @@ function RelationshipComposer({ data, subjectId, subjectName, defaultAnchorId }:
       {relation === 'sibling' && !anchorHasParents && <p className="field-warning">所选人物还没有父母资料，暂时无法建立亲兄弟姐妹关系。</p>}
     </section>
     <div className="relation-preview"><span>将写入的基础关系</span><strong>{basicRelationshipPreview(data, subjectName, anchorId, relation)}</strong></div>
+  </div>
+}
+
+function rosterRelationshipSeed(data: FamilyData, subjectId: string, viewerId: string): { anchorId: string; relation: BasicRelation | '' } {
+  const preferred = viewerId !== subjectId ? viewerId : data.people.find((person) => person.id !== subjectId)?.id ?? ''
+  const anchors = [preferred, ...data.people.filter((person) => person.id !== subjectId && person.id !== preferred).map((person) => person.id)]
+  for (const anchorId of anchors) {
+    if (data.parents.some((item) => item.parentId === subjectId && item.childId === anchorId)) return { anchorId, relation: 'parent' }
+    if (data.parents.some((item) => item.parentId === anchorId && item.childId === subjectId)) return { anchorId, relation: 'child' }
+    if (data.spouses.some((item) => [item.personAId, item.personBId].includes(subjectId) && [item.personAId, item.personBId].includes(anchorId))) return { anchorId, relation: 'spouse' }
+    const anchorParents = new Set(data.parents.filter((item) => item.childId === anchorId).map((item) => item.parentId))
+    if (anchorParents.size && data.parents.some((item) => item.childId === subjectId && anchorParents.has(item.parentId))) return { anchorId, relation: 'sibling' }
+  }
+  return { anchorId: preferred, relation: '' }
+}
+
+function RosterRelationshipCell({ data, person, viewerId }: { data: FamilyData; person: Person; viewerId: string }) {
+  const seed = rosterRelationshipSeed(data, person.id, viewerId)
+  const candidates = data.people.filter((item) => item.id !== person.id)
+  const [anchorId, setAnchorId] = useState(seed.anchorId)
+  const [relation, setRelation] = useState<BasicRelation | ''>(seed.relation)
+  const [query, setQuery] = useState('')
+  const [open, setOpen] = useState(false)
+  const anchor = data.people.find((item) => item.id === anchorId)
+  const filtered = candidates.filter((item) => item.name.includes(query)).slice(0, 10)
+  const labels = person.gender === 'female'
+    ? { parent: '母亲', child: '女儿', sibling: '亲姐妹', spouse: '配偶' }
+    : { parent: '父亲', child: '儿子', sibling: '亲兄弟', spouse: '配偶' }
+  return <div className="roster-relationship-cell">
+    <input type="hidden" name={`anchor:${person.id}`} value={anchorId}/><input type="hidden" name={`relation:${person.id}`} value={relation}/>
+    <input type="hidden" name={`originalAnchor:${person.id}`} value={seed.anchorId}/><input type="hidden" name={`originalRelation:${person.id}`} value={seed.relation}/>
+    <div className="roster-anchor-select"><button type="button" onClick={() => setOpen((current) => !current)} aria-expanded={open}><span>{anchor?.name ?? '选择人物'}</span><i>⌄</i></button>{open && <div className="roster-anchor-menu"><label><Icon name="search"/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索人物" autoFocus/></label>{filtered.map((item) => <button type="button" key={item.id} onClick={() => { setAnchorId(item.id); setOpen(false); setQuery('') }}><span>{item.name}</span>{item.id === anchorId && <i>✓</i>}</button>)}</div>}</div>
+    <select value={relation} onChange={(event) => setRelation(event.target.value as BasicRelation | '')} aria-label={`${person.name}与支点人物的关系`}><option value="">未设置</option><option value="parent">{labels.parent}</option><option value="child">{labels.child}</option><option value="sibling">{labels.sibling}</option><option value="spouse">配偶</option></select>
   </div>
 }
 
@@ -295,6 +328,7 @@ function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer, onAdd }: {
   }
   const parentGroups = new Map<string, { parentIds: string[]; childIds: string[] }>()
   const parentsByChild = new Map<string, string[]>()
+  const spousePairs = new Set(data.spouses.map(({ personAId, personBId }) => [personAId, personBId].sort().join('|')))
   data.parents.forEach(({ parentId, childId }) => {
     parentsByChild.set(childId, [...(parentsByChild.get(childId) ?? []), parentId])
   })
@@ -319,7 +353,11 @@ function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer, onAdd }: {
     const trunkX = parentCenters.reduce((total, x) => total + x, 0) / parentCenters.length
     const railLeft = Math.min(trunkX, ...childCenters)
     const railRight = Math.max(trunkX, ...childCenters)
-    const parentBranches = parents.map((person) => `M ${person.x + CARD_W / 2} ${person.y + CARD_H - CONNECTION_OVERLAP} V ${railY}`).join(' ')
+    const parentsAreSpouses = parentIds.length === 2 && spousePairs.has([...parentIds].sort().join('|'))
+    const spouseY = parents.reduce((total, person) => total + person.y + CARD_H / 2, 0) / parents.length
+    const parentBranches = parentsAreSpouses
+      ? `M ${trunkX} ${spouseY} V ${railY}`
+      : parents.map((person) => `M ${person.x + CARD_W / 2} ${person.y + CARD_H - CONNECTION_OVERLAP} V ${railY}`).join(' ')
     const childBranches = children.map((person) => `M ${person.x + CARD_W / 2} ${railY} V ${person.y + CONNECTION_OVERLAP}`).join(' ')
     const rail = `M ${railLeft} ${railY} H ${railRight}`
     const faded = generationView !== null && members.every((person) => !matchesGenerationView(person.generation))
@@ -619,10 +657,28 @@ function App() {
         note: String(form.get(`note:${person.id}`) || '').trim(),
       })
     }
-    updateData((current) => ({
-      ...current,
-      people: current.people.map((person) => ({ ...person, ...updates.get(person.id) })),
+    const relationshipUpdates = data.people.map((person) => ({
+      personId: person.id,
+      anchorId: String(form.get(`anchor:${person.id}`) || ''),
+      relation: String(form.get(`relation:${person.id}`) || '') as BasicRelation | '',
+      originalAnchorId: String(form.get(`originalAnchor:${person.id}`) || ''),
+      originalRelation: String(form.get(`originalRelation:${person.id}`) || '') as BasicRelation | '',
     }))
+    const invalidSibling = relationshipUpdates.find((item) => item.relation === 'sibling' && !data.parents.some((relation) => relation.childId === item.anchorId))
+    if (invalidSibling) {
+      const anchor = data.people.find((person) => person.id === invalidSibling.anchorId)
+      setToast(`${anchor?.name ?? '支点人物'}还没有父母资料，无法建立亲兄弟姐妹关系`)
+      window.setTimeout(() => setToast(''), 2800)
+      return
+    }
+    updateData((current) => {
+      let next: FamilyData = { ...current, people: current.people.map((person) => ({ ...person, ...updates.get(person.id) })) }
+      relationshipUpdates.forEach((item) => {
+        if (item.originalRelation && (item.originalAnchorId !== item.anchorId || item.originalRelation !== item.relation)) next = removeBasicRelationship(next, item.personId, item.originalAnchorId, item.originalRelation)
+        if (item.relation) next = addBasicRelationship(next, item.personId, item.anchorId, item.relation)
+      })
+      return ensureSpouseCoParents(next)
+    })
     setShowRoster(false)
     setToast(`已一次更新 ${data.people.length} 位人物资料`)
     window.setTimeout(() => setToast(''), 2400)
@@ -882,9 +938,10 @@ function App() {
     {showRoster && <div className="modal-backdrop" onMouseDown={() => setShowRoster(false)}><form className="roster-modal" onSubmit={editRoster} onMouseDown={(event) => event.stopPropagation()}>
       <div className="roster-heading"><div><span className="eyebrow">人物名册</span><h2>连续编辑人物资料</h2><p>资料可统一保存；每一行使用同样的“支点人物 + 基础关系”编辑方式。</p></div><span>{data.people.length} 人</span></div>
       <div className="roster-table-wrap"><table className="roster-table">
-        <thead><tr><th>人物</th><th>性别</th><th>公历生日</th><th>备注</th></tr></thead>
+        <thead><tr><th>人物</th><th>是谁的什么人</th><th>性别</th><th>公历生日</th><th>备注</th></tr></thead>
         <tbody>{data.people.map((person) => <tr key={person.id}>
-          <td><div className="roster-person"><Avatar person={person} size="small"/><div><input name={`name:${person.id}`} defaultValue={person.name} aria-label={`${person.name}的姓名`} required/><button type="button" onClick={() => setRelationEditId(person.id)}>编辑关系</button></div></div></td>
+          <td><div className="roster-person"><Avatar person={person} size="small"/><div><input name={`name:${person.id}`} defaultValue={person.name} aria-label={`${person.name}的姓名`} required/></div></div></td>
+          <td><RosterRelationshipCell data={data} person={person} viewerId={viewerId}/></td>
           <td><select name={`gender:${person.id}`} defaultValue={person.gender} aria-label={`${person.name}的性别`}><option value="male">男性</option><option value="female">女性</option></select></td>
           <td><input name={`birthDate:${person.id}`} type="date" defaultValue={person.birthDate ?? ''} aria-label={`${person.name}的公历生日`}/></td>
           <td><input name={`note:${person.id}`} defaultValue={person.note ?? ''} placeholder="小名、籍贯、家庭记忆" aria-label={`${person.name}的备注`}/></td>

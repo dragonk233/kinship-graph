@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { sampleFamily as initialFamily } from './data'
-import { addBasicRelationship, addRelatedPerson, anchorIdsFor, ensureSpouseCoParents, genderLabel, replaceDirectRelations, resolvePersonOverlaps, suggestedPersonPlacement } from './relationEditor'
+import { addBasicRelationship, addRelatedPerson, anchorIdsFor, ensureSpouseCoParents, genderLabel, removeBasicRelationship, replaceDirectRelations, resolvePersonOverlaps, suggestedPersonPlacement } from './relationEditor'
 import { calculateKinship } from './kinship'
 import type { Person } from './types'
 
@@ -95,5 +95,11 @@ describe('完整关系录入', () => {
     const myParents = initialFamily.parents.filter((item) => item.childId === 'me').map((item) => item.parentId)
     expect(withSibling.parents.filter((item) => item.childId === 'daughter').map((item) => item.parentId)).toEqual(expect.arrayContaining(myParents))
     expect(addBasicRelationship(initialFamily, 'daughter', 'me', 'spouse').spouses).toContainEqual({ personAId: 'me', personBId: 'daughter' })
+  })
+
+  it('批量编辑时只替换指定的基础关系', () => {
+    const removed = removeBasicRelationship(initialFamily, 'me', 'father', 'child')
+    expect(removed.parents).not.toContainEqual({ parentId: 'father', childId: 'me' })
+    expect(removed.parents).toContainEqual({ parentId: 'mother', childId: 'me' })
   })
 })

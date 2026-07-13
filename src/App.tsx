@@ -132,9 +132,10 @@ function RelationshipComposer({ data, subjectId, subjectName, defaultAnchorId }:
     <input type="hidden" name="anchorId" value={anchorId}/><input type="hidden" name="basicRelation" value={relation}/>
     <span className="relationship-label">基础关系</span>
     <div className="compact-relationship-row"><strong>{subjectName}</strong><span>是</span>
-      <div className="roster-anchor-select"><button type="button" onClick={() => setOpen((current) => !current)} aria-expanded={open}><span>{anchor?.name ?? '选择人物'}</span><i>⌄</i></button>{open && <div className="roster-anchor-menu"><label><Icon name="search"/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索人物" autoFocus/></label>{filtered.map((person) => <button type="button" key={person.id} onClick={() => { setAnchorId(person.id); setOpen(false); setQuery('') }}><span>{person.name}</span>{person.id === anchorId && <i>✓</i>}</button>)}</div>}</div>
+      <div className="roster-anchor-select"><button type="button" onClick={() => setOpen((current) => !current)} aria-expanded={open}><span>{anchor?.name ?? '选择人物'}</span><i>⌄</i></button></div>
       <span>的</span><select value={relation} onChange={(event) => setRelation(event.target.value as BasicRelation)} aria-label={`${subjectName}与支点人物的关系`}><option value="parent">父母</option><option value="child">子女</option><option value="sibling" disabled={!anchorHasParents}>亲兄弟姐妹</option><option value="spouse">配偶</option></select>
     </div>
+    {open && <div className="inline-anchor-menu"><label><Icon name="search"/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索人物" autoFocus/></label><div>{filtered.map((person) => <button type="button" key={person.id} onClick={() => { setAnchorId(person.id); setOpen(false); setQuery('') }}><Avatar person={person} size="small"/><span><strong>{person.name}</strong><small>{person.birthYear} 年</small></span>{person.id === anchorId && <i>✓</i>}</button>)}{!filtered.length && <p>没有找到匹配人物</p>}</div></div>}
     {relation === 'sibling' && !anchorHasParents && <p className="field-warning">所选人物还没有父母资料，暂时无法建立亲兄弟姐妹关系。</p>}
   </div>
 }

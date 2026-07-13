@@ -1,4 +1,5 @@
 import { FormEvent, PointerEvent, useCallback, useEffect, useId, useMemo, useRef, useState, WheelEvent } from 'react'
+import { createPortal } from 'react-dom'
 import { initialFamily, showcaseFamily } from './data'
 import { clearFamilyData, loadFamilyData, parseFamilyBackup, saveFamilyData, serializeFamilyBackup, serializeFamilyMarkdown } from './familyStorage'
 import { calculateKinship } from './kinship'
@@ -119,23 +120,53 @@ function Avatar({ person, size }: { person: Person; size?: 'small' | 'large' }) 
   </span>
 }
 
+function SearchablePersonSelect({ people, value, onChange, label }: { people: Person[]; value: string; onChange: (id: string) => void; label: string }) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [position, setPosition] = useState({ left: 0, top: 0, width: 240, maxHeight: 280 })
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const selected = people.find((person) => person.id === value)
+  const filtered = people.filter((person) => person.name.includes(query)).sort((a, b) => query ? 0 : a.id === value ? -1 : b.id === value ? 1 : 0).slice(0, 20)
+  const toggle = () => {
+    if (open) { setOpen(false); return }
+    const rect = triggerRef.current?.getBoundingClientRect()
+    if (rect) {
+      const width = Math.min(Math.max(rect.width, 240), window.innerWidth - 16)
+      const spaceBelow = window.innerHeight - rect.bottom
+      const spaceAbove = rect.top
+      const opensUp = spaceBelow < 280 && spaceAbove > spaceBelow
+      const maxHeight = Math.min(280, Math.max(120, (opensUp ? spaceAbove : spaceBelow) - 8))
+      setPosition({ left: Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)), top: opensUp ? Math.max(8, rect.top - maxHeight - 4) : rect.bottom + 4, width, maxHeight })
+    }
+    setOpen(true)
+  }
+  useEffect(() => {
+    if (!open) return
+    const closeOutside = (event: MouseEvent) => { if (!triggerRef.current?.contains(event.target as Node) && !menuRef.current?.contains(event.target as Node)) setOpen(false) }
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setOpen(false) }
+    const closeOnLayoutChange = (event: Event) => { if (!menuRef.current?.contains(event.target as Node)) setOpen(false) }
+    document.addEventListener('mousedown', closeOutside)
+    document.addEventListener('keydown', closeOnEscape)
+    window.addEventListener('resize', closeOnLayoutChange)
+    window.addEventListener('scroll', closeOnLayoutChange, true)
+    return () => { document.removeEventListener('mousedown', closeOutside); document.removeEventListener('keydown', closeOnEscape); window.removeEventListener('resize', closeOnLayoutChange); window.removeEventListener('scroll', closeOnLayoutChange, true) }
+  }, [open])
+  return <div className="person-select"><button ref={triggerRef} type="button" onClick={toggle} aria-expanded={open} aria-label={label}><span>{selected?.name ?? '选择人物'}</span><i>⌄</i></button>{open && createPortal(<div className="person-select-menu" ref={menuRef} style={position}><label><Icon name="search"/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索人物" autoFocus/></label><div>{filtered.map((person) => <button type="button" key={person.id} onClick={() => { onChange(person.id); setOpen(false); setQuery('') }}><Avatar person={person} size="small"/><span><strong>{person.name}</strong><small>{person.birthYear} 年</small></span>{person.id === value && <i>✓</i>}</button>)}{!filtered.length && <p>没有找到匹配人物</p>}</div></div>, document.body)}</div>
+}
+
 function RelationshipComposer({ data, subjectId, subjectName, defaultAnchorId }: { data: FamilyData; subjectId?: string; subjectName: string; defaultAnchorId?: string }) {
   const candidates = data.people.filter((person) => person.id !== subjectId)
-  const [query, setQuery] = useState('')
-  const [open, setOpen] = useState(false)
   const [anchorId, setAnchorId] = useState(defaultAnchorId && candidates.some((person) => person.id === defaultAnchorId) ? defaultAnchorId : candidates[0]?.id ?? '')
   const [relation, setRelation] = useState<BasicRelation>('child')
-  const filtered = candidates.filter((person) => person.name.includes(query)).sort((a, b) => query ? 0 : a.id === anchorId ? -1 : b.id === anchorId ? 1 : 0).slice(0, 12)
-  const anchor = data.people.find((person) => person.id === anchorId)
   const anchorHasParents = data.parents.some((item) => item.childId === anchorId)
   return <div className="relationship-composer">
     <input type="hidden" name="anchorId" value={anchorId}/><input type="hidden" name="basicRelation" value={relation}/>
     <span className="relationship-label">基础关系</span>
     <div className="compact-relationship-row"><strong>{subjectName}</strong><span>是</span>
-      <div className="roster-anchor-select"><button type="button" onClick={() => setOpen((current) => !current)} aria-expanded={open}><span>{anchor?.name ?? '选择人物'}</span><i>⌄</i></button></div>
+      <SearchablePersonSelect people={candidates} value={anchorId} onChange={setAnchorId} label="选择支点人物"/>
       <span>的</span><select value={relation} onChange={(event) => setRelation(event.target.value as BasicRelation)} aria-label={`${subjectName}与支点人物的关系`}><option value="parent">父母</option><option value="child">子女</option><option value="sibling" disabled={!anchorHasParents}>亲兄弟姐妹</option><option value="spouse">配偶</option></select>
     </div>
-    {open && <div className="inline-anchor-menu"><label><Icon name="search"/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索人物" autoFocus/></label><div>{filtered.map((person) => <button type="button" key={person.id} onClick={() => { setAnchorId(person.id); setOpen(false); setQuery('') }}><Avatar person={person} size="small"/><span><strong>{person.name}</strong><small>{person.birthYear} 年</small></span>{person.id === anchorId && <i>✓</i>}</button>)}{!filtered.length && <p>没有找到匹配人物</p>}</div></div>}
     {relation === 'sibling' && !anchorHasParents && <p className="field-warning">所选人物还没有父母资料，暂时无法建立亲兄弟姐妹关系。</p>}
   </div>
 }
@@ -158,17 +189,13 @@ function RosterRelationshipCell({ data, person, viewerId }: { data: FamilyData; 
   const candidates = data.people.filter((item) => item.id !== person.id)
   const [anchorId, setAnchorId] = useState(seed.anchorId)
   const [relation, setRelation] = useState<BasicRelation | ''>(seed.relation)
-  const [query, setQuery] = useState('')
-  const [open, setOpen] = useState(false)
-  const anchor = data.people.find((item) => item.id === anchorId)
-  const filtered = candidates.filter((item) => item.name.includes(query)).slice(0, 10)
   const labels = person.gender === 'female'
     ? { parent: '母亲', child: '女儿', sibling: '亲姐妹', spouse: '配偶' }
     : { parent: '父亲', child: '儿子', sibling: '亲兄弟', spouse: '配偶' }
   return <div className="roster-relationship-cell">
     <input type="hidden" name={`anchor:${person.id}`} value={anchorId}/><input type="hidden" name={`relation:${person.id}`} value={relation}/>
     <input type="hidden" name={`originalAnchor:${person.id}`} value={seed.anchorId}/><input type="hidden" name={`originalRelation:${person.id}`} value={seed.relation}/>
-    <div className="roster-anchor-select"><button type="button" onClick={() => setOpen((current) => !current)} aria-expanded={open}><span>{anchor?.name ?? '选择人物'}</span><i>⌄</i></button>{open && <div className="roster-anchor-menu"><label><Icon name="search"/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索人物" autoFocus/></label>{filtered.map((item) => <button type="button" key={item.id} onClick={() => { setAnchorId(item.id); setOpen(false); setQuery('') }}><span>{item.name}</span>{item.id === anchorId && <i>✓</i>}</button>)}</div>}</div>
+    <SearchablePersonSelect people={candidates} value={anchorId} onChange={setAnchorId} label={`${person.name}的支点人物`}/>
     <select value={relation} onChange={(event) => setRelation(event.target.value as BasicRelation | '')} aria-label={`${person.name}与支点人物的关系`}><option value="">未设置</option><option value="parent">{labels.parent}</option><option value="child">{labels.child}</option><option value="sibling">{labels.sibling}</option><option value="spouse">配偶</option></select>
   </div>
 }

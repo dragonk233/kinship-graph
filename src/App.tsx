@@ -3,8 +3,8 @@ import { initialFamily, showcaseFamily } from './data'
 import { clearFamilyData, loadFamilyData, parseFamilyBackup, saveFamilyData, serializeFamilyBackup, serializeFamilyMarkdown } from './familyStorage'
 import { calculateKinship } from './kinship'
 import { hasMinnanRecording, speakMinnan, stopMinnanSpeech } from './minnanSpeech'
-import { addRelatedPerson, anchorIdsFor, ensureSpouseCoParents, genderLabel, relationOptions, relationPreview, replaceDirectRelations, resolvePersonOverlaps, suggestedPersonPlacement } from './relationEditor'
-import type { DirectRelation, RelationKind } from './relationEditor'
+import { addBasicRelationship, basicRelationshipPreview, ensureSpouseCoParents, resolvePersonOverlaps, suggestedBasicPlacement } from './relationEditor'
+import type { BasicRelation } from './relationEditor'
 import type { FamilyData, Gender, Person } from './types'
 import { formatZodiac } from './zodiac'
 import { birthYearFromDate, formatLunarBirthday, formatSolarBirthday, isBirthDate } from './lunar'
@@ -15,10 +15,9 @@ import type { LegalFilterId } from './legalKinship'
 const HOME_ID = 'me'
 const CARD_W = 148
 const CARD_H = 94
-// Connections are rendered behind the cards. Extending their endpoints a few
-// pixels into each card prevents the border/background antialiasing from
-// exposing a visible gap at the join.
-const CONNECTION_OVERLAP = 4
+// Connections render behind the cards. The graph is commonly fitted below 50%,
+// where a tiny overlap can be rounded into a visible gap at the card border.
+const CONNECTION_OVERLAP = 12
 const AVATAR_FEATURE_ENABLED = false
 
 function Icon({ name }: { name: 'search' | 'home' | 'plus' | 'route' | 'person' | 'edit' | 'speaker' | 'trash' }) {
@@ -120,23 +119,28 @@ function Avatar({ person, size }: { person: Person; size?: 'small' | 'large' }) 
   </span>
 }
 
-function DirectRelationFields({ data, personId, compact = false }: { data: FamilyData; personId: string; compact?: boolean }) {
-  const person = data.people.find((item) => item.id === personId)!
-  const candidates = data.people.filter((item) => item.id !== personId)
-  const groups = [
-    { key: 'parent', label: '父母', hint: `谁是 ${person.name} 的父母`, ids: new Set(data.parents.filter((item) => item.childId === personId).map((item) => item.parentId)) },
-    { key: 'spouse', label: '配偶', hint: `谁是 ${person.name} 的配偶`, ids: new Set(data.spouses.flatMap((item) => item.personAId === personId ? [item.personBId] : item.personBId === personId ? [item.personAId] : [])) },
-    { key: 'child', label: '子女', hint: `谁是 ${person.name} 的子女`, ids: new Set(data.parents.filter((item) => item.parentId === personId).map((item) => item.childId)) },
+function RelationshipComposer({ data, subjectId, subjectName, defaultAnchorId }: { data: FamilyData; subjectId?: string; subjectName: string; defaultAnchorId?: string }) {
+  const candidates = data.people.filter((person) => person.id !== subjectId)
+  const [query, setQuery] = useState('')
+  const [anchorId, setAnchorId] = useState(defaultAnchorId && candidates.some((person) => person.id === defaultAnchorId) ? defaultAnchorId : candidates[0]?.id ?? '')
+  const [relation, setRelation] = useState<BasicRelation>('child')
+  const filtered = candidates.filter((person) => person.name.includes(query)).sort((a, b) => query ? 0 : a.id === anchorId ? -1 : b.id === anchorId ? 1 : 0).slice(0, 12)
+  const options: { id: BasicRelation; label: string }[] = [
+    { id: 'parent', label: '父母' }, { id: 'child', label: '子女' }, { id: 'sibling', label: '亲兄弟姐妹' }, { id: 'spouse', label: '配偶' },
   ]
-  return <fieldset className={`direct-relation-fields ${compact ? 'compact' : ''}`}>
-    <legend><span>直接关系</span><small>只选父母、配偶和子女，其他关系由系统自动推导</small></legend>
-    {groups.map((group) => <details key={group.key}>
-      <summary><span><strong>{group.label}</strong><small>{group.hint}</small></span><em>{group.ids.size ? [...group.ids].map((id) => data.people.find((item) => item.id === id)?.name).join('、') : '未设置'}</em><i>›</i></summary>
-      <div className="relation-chip-list">{candidates.map((candidate) => <label key={candidate.id}>
-        <input type="checkbox" name={`relation-${group.key}`} value={candidate.id} defaultChecked={group.ids.has(candidate.id)}/><span>{candidate.name}</span>
-      </label>)}</div>
-    </details>)}
-  </fieldset>
+  const anchorHasParents = data.parents.some((item) => item.childId === anchorId)
+  return <div className="relationship-composer">
+    <input type="hidden" name="anchorId" value={anchorId}/><input type="hidden" name="basicRelation" value={relation}/>
+    <section><div className="composer-step"><b>1</b><span><strong>选择支点人物</strong><small>当前人物要和谁建立关系</small></span></div>
+      <label className="anchor-search"><Icon name="search"/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索姓名"/></label>
+      <div className="anchor-list" role="radiogroup" aria-label="支点人物">{filtered.map((person) => <label key={person.id}><input type="radio" checked={anchorId === person.id} onChange={() => setAnchorId(person.id)}/><Avatar person={person} size="small"/><span><strong>{person.name}</strong><small>{person.birthYear} 年</small></span><i>{anchorId === person.id ? '✓' : ''}</i></label>)}{!filtered.length && <p>没有找到匹配人物</p>}</div>
+    </section>
+    <section><div className="composer-step"><b>2</b><span><strong>{subjectName} 是对方的</strong><small>只记录四种基础事实</small></span></div>
+      <div className="basic-relation-options">{options.map((option) => <label key={option.id} className={option.id === 'sibling' && !anchorHasParents ? 'disabled' : ''}><input type="radio" checked={relation === option.id} disabled={option.id === 'sibling' && !anchorHasParents} onChange={() => setRelation(option.id)}/><span>{option.label}</span></label>)}</div>
+      {relation === 'sibling' && !anchorHasParents && <p className="field-warning">所选人物还没有父母资料，暂时无法建立亲兄弟姐妹关系。</p>}
+    </section>
+    <div className="relation-preview"><span>将写入的基础关系</span><strong>{basicRelationshipPreview(data, subjectName, anchorId, relation)}</strong></div>
+  </div>
 }
 
 function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer, onAdd }: {
@@ -147,7 +151,9 @@ function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer, onAdd }: {
   const [camera, setCamera] = useState({ x: 0, y: 0, scale: .72 })
   const [dragging, setDragging] = useState(false)
   const [generationView, setGenerationView] = useState<number | null>(null)
-  const [relationshipFocus, setRelationshipFocus] = useState(true)
+  // Start with the complete family graph visible. Focus is an opt-in reading
+  // aid; enabling it by default makes valid relationships look disconnected.
+  const [relationshipFocus, setRelationshipFocus] = useState(false)
   const [legalFilter, setLegalFilter] = useState<LegalFilterId | null>(null)
   const [filterMenuOpen, setFilterMenuOpen] = useState(false)
   const [filterCategory, setFilterCategory] = useState<'generation' | 'legal'>('generation')
@@ -417,9 +423,6 @@ function App() {
   const [relationEditId, setRelationEditId] = useState<string | null>(null)
   const [pairAId, setPairAId] = useState(HOME_ID)
   const [pairBId, setPairBId] = useState(HOME_ID)
-  const [relationKind, setRelationKind] = useState<RelationKind>('parent')
-  const [relationAnchorId, setRelationAnchorId] = useState('')
-  const [directRelation, setDirectRelation] = useState<DirectRelation>('child')
   const [avatarDraft, setAvatarDraft] = useState<string | undefined>()
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null)
   const [toast, setToast] = useState('')
@@ -437,8 +440,6 @@ function App() {
   const filtered = data.people.filter((p) => p.name.includes(query) || calculateKinship(data, viewerId, p.id).mandarin.some((term) => term.includes(query)))
   const pathPeople = result.pathIds.map((id) => data.people.find((p) => p.id === id)!).filter(Boolean)
   const hasOfficialRecording = hasMinnanRecording(result.minnanAudioTerms)
-  const relationAnchors = anchorIdsFor(data, viewerId, relationKind)
-  const effectiveAnchorId = relationAnchors.includes(relationAnchorId) ? relationAnchorId : (relationAnchors[0] ?? '')
   const healthIssues = useMemo(() => inspectFamilyHealth(data), [data])
   const pairForward = calculateKinship(data, pairAId, pairBId)
   const pairReverse = calculateKinship(data, pairBId, pairAId)
@@ -528,20 +529,24 @@ function App() {
     const name = String(form.get('name') || '').trim()
     const gender = String(form.get('gender')) as Gender
     const birthDate = String(form.get('birthDate') || '')
-    if (!name || !isBirthDate(birthDate)) return
+    const anchorId = String(form.get('anchorId') || '')
+    const basicRelation = String(form.get('basicRelation')) as BasicRelation
+    if (!name || !isBirthDate(birthDate) || !anchorId) return
+    if (basicRelation === 'sibling' && !data.parents.some((item) => item.childId === anchorId)) {
+      setToast('请先为支点人物补充父母，再建立亲兄弟姐妹关系')
+      window.setTimeout(() => setToast(''), 2600)
+      return
+    }
     const id = `custom-${Date.now()}`
-    const placement = suggestedPersonPlacement(data, viewerId, relationKind, effectiveAnchorId, directRelation)
+    const placement = suggestedBasicPlacement(data, anchorId, basicRelation)
     const base: Person = { id, name, gender, birthYear: birthYearFromDate(birthDate), birthDate, ...placement }
-    updateData((current) => addRelatedPerson(current, viewerId, base, relationKind, effectiveAnchorId, directRelation))
+    updateData((current) => ensureSpouseCoParents(addBasicRelationship({ ...current, people: [...current.people, base] }, id, anchorId, basicRelation)))
     setSelectedId(id); setShowAdd(false)
-    setToast(`已添加${genderLabel(relationKind, gender, viewer, base)} ${name}`)
+    setToast(`已添加 ${name}，并写入基础关系`)
     window.setTimeout(() => setToast(''), 2200)
   }
 
   const openAdd = () => {
-    setRelationKind('parent')
-    setRelationAnchorId('')
-    setDirectRelation('child')
     setShowAdd(true)
   }
 
@@ -567,10 +572,10 @@ function App() {
       note: String(form.get('note') || '').trim(),
       ...(AVATAR_FEATURE_ENABLED ? { avatar: avatarDraft } : {}),
     }
-    updateData((current) => replaceDirectRelations({
+    updateData((current) => ({
       ...current,
       people: current.people.map((person) => person.id === selectedId ? { ...person, ...updated } : person),
-    }, selectedId, form.getAll('relation-parent').map(String), form.getAll('relation-spouse').map(String), form.getAll('relation-child').map(String)))
+    }))
     setShowEdit(false)
     setToast(`已更新 ${name} 的人物资料`)
     window.setTimeout(() => setToast(''), 2200)
@@ -581,9 +586,17 @@ function App() {
     if (!relationEditId) return
     const form = new FormData(event.currentTarget)
     const name = data.people.find((person) => person.id === relationEditId)?.name
-    updateData((current) => replaceDirectRelations(current, relationEditId, form.getAll('relation-parent').map(String), form.getAll('relation-spouse').map(String), form.getAll('relation-child').map(String)))
+    const anchorId = String(form.get('anchorId') || '')
+    const relation = String(form.get('basicRelation')) as BasicRelation
+    if (!anchorId) return
+    if (relation === 'sibling' && !data.parents.some((item) => item.childId === anchorId)) {
+      setToast('请先为支点人物补充父母，再建立亲兄弟姐妹关系')
+      window.setTimeout(() => setToast(''), 2600)
+      return
+    }
+    updateData((current) => ensureSpouseCoParents(addBasicRelationship(current, relationEditId, anchorId, relation)))
     setRelationEditId(null)
-    setToast(`已更新 ${name} 的直接关系，其他关系将自动生成`)
+    setToast(`已为 ${name} 添加基础关系，其他关系将自动生成`)
     window.setTimeout(() => setToast(''), 2400)
   }
 
@@ -817,7 +830,7 @@ function App() {
         <section className="path-block"><div className="section-title"><span className="eyebrow">关系是怎么得出的</span><Icon name="route"/></div><p>{result.pathLabel}</p><div className="path-flow">
           {pathPeople.map((person, index) => <span key={person.id}><b>{person.name}</b>{index < pathPeople.length - 1 && <i>→</i>}</span>)}
         </div></section>
-        <button className="manage-relations-button" onClick={() => setRelationEditId(selected.id)}><Icon name="route"/><span><strong>编辑直接关系</strong><small>添加或移除父母、配偶与子女</small></span></button>
+        <button className="manage-relations-button" onClick={() => setRelationEditId(selected.id)}><Icon name="route"/><span><strong>编辑基础关系</strong><small>选择一位亲人作为支点，再说明关系</small></span></button>
         {selected.note && <section className="person-note"><span className="eyebrow">人物备注</span><p>{selected.note}</p></section>}
         <div className="accuracy-note"><strong>准确性提示</strong><p>闽南语称呼因泉州、厦门、漳州及家庭习惯而异。当前为演示词库，正式版允许逐条确认。</p></div>
       </aside>
@@ -830,24 +843,11 @@ function App() {
     </nav>
 
     {showAdd && <div className="modal-backdrop" onMouseDown={() => setShowAdd(false)}><form className="add-modal relation-modal" onSubmit={addPerson} onMouseDown={(e) => e.stopPropagation()}>
-      <div><span className="eyebrow">完整关系录入</span><h2>添加与 {viewer.name} 有关的亲人</h2><p>先选择现实中的称谓；系统会把它转换成可验证的父母、子女或配偶关系。</p></div>
-      <fieldset className="relation-picker"><legend>相对于 {viewer.name} 的关系</legend>
-        {[...new Set(relationOptions.map((option) => option.group))].map((group) => <div className="relation-group" key={group}><span>{group}</span><div>{relationOptions.filter((option) => option.group === group).map((option) => <button type="button" key={option.id} className={relationKind === option.id ? 'active' : ''} onClick={() => { setRelationKind(option.id); setRelationAnchorId('') }}><strong>{option.label}</strong><small>{option.description}</small></button>)}</div></div>)}
-      </fieldset>
-      {!['parent', 'child', 'spouse'].includes(relationKind) && <label>用于建立关系的已有亲人
-        <select value={effectiveAnchorId} onChange={(event) => setRelationAnchorId(event.target.value)} required>
-          {!relationAnchors.length && <option value="">暂无可连接人物</option>}
-          {relationAnchors.map((id) => { const person = data.people.find((item) => item.id === id)!; return <option key={id} value={id}>{person.name} · {calculateKinship(data, viewerId, id).mandarin[0]}</option> })}
-        </select>
-        {!relationAnchors.length && relationKind !== 'custom' && <small className="field-warning">图中还缺少建立此关系所需的中间亲人，请先添加或使用“精确连接”。</small>}
-      </label>}
-      {relationKind === 'custom' && <label>新人物是所选亲人的
-        <select value={directRelation} onChange={(event) => setDirectRelation(event.target.value as DirectRelation)}><option value="parent">父母</option><option value="child">子女</option><option value="spouse">配偶</option></select>
-      </label>}
-      <div className="relation-preview"><span>将写入的关系链</span><strong>{relationPreview(data, viewerId, relationKind, effectiveAnchorId, directRelation)}</strong></div>
+      <div><span className="eyebrow">添加人物</span><h2>创建一位亲人</h2><p>填写基本资料，再用一位已有亲人说明两人的基础关系。</p></div>
       <label>姓名<input name="name" autoFocus placeholder="例如：王小安" required/></label>
       <div className="form-row"><label>性别<select name="gender"><option value="male">男性</option><option value="female">女性</option></select></label><BirthdayField defaultValue="2000-01-01" required/></div>
-      <div className="modal-actions"><button type="button" onClick={() => setShowAdd(false)}>取消</button><button className="primary-button" type="submit" disabled={!['parent', 'child', 'spouse'].includes(relationKind) && !effectiveAnchorId}>加入图谱</button></div>
+      <RelationshipComposer data={data} subjectName="新人物" defaultAnchorId={selectedId}/>
+      <div className="modal-actions"><button type="button" onClick={() => setShowAdd(false)}>取消</button><button className="primary-button" type="submit">加入图谱</button></div>
     </form></div>}
     {showRelations && <div className="modal-backdrop" onMouseDown={() => setShowRelations(false)}><section className="relations-modal" role="dialog" aria-modal="true" aria-labelledby="relations-title" onMouseDown={(e) => e.stopPropagation()}>
       <div><span className="eyebrow">关系维护</span><h2 id="relations-title">{selected.name} 的直接关系</h2><p>这里只显示家谱中实际保存的基础连接；移除连接不会删除人物。</p></div>
@@ -872,7 +872,7 @@ function App() {
         <BirthdayField defaultValue={selected.birthDate}/>
       </div>
       <label>人物备注<textarea name="note" rows={3} defaultValue={selected.note ?? ''} placeholder="籍贯、小名、家庭记忆等"/></label>
-      <DirectRelationFields data={data} personId={selected.id}/>
+      <button className="inline-relation-button" type="button" onClick={() => setRelationEditId(selected.id)}><Icon name="route"/><span><strong>添加或调整关系</strong><small>选择一位支点人物，再说明两人的基础关系</small></span><i>›</i></button>
       <div className="modal-actions split-actions">
         <button className="danger-button" type="button" disabled={data.people.length <= 1} title={data.people.length <= 1 ? '图谱中至少需要保留一个人物' : undefined} onClick={() => { setShowEdit(false); setDeleteTargetId(selected.id) }}><Icon name="trash"/>删除人物</button>
         <span className="action-spacer"/>
@@ -880,7 +880,7 @@ function App() {
       </div>
     </form></div>}
     {showRoster && <div className="modal-backdrop" onMouseDown={() => setShowRoster(false)}><form className="roster-modal" onSubmit={editRoster} onMouseDown={(event) => event.stopPropagation()}>
-      <div className="roster-heading"><div><span className="eyebrow">人物名册</span><h2>连续编辑人物资料</h2><p>资料可统一保存；每一行也能直接编辑父母、配偶和子女。</p></div><span>{data.people.length} 人</span></div>
+      <div className="roster-heading"><div><span className="eyebrow">人物名册</span><h2>连续编辑人物资料</h2><p>资料可统一保存；每一行使用同样的“支点人物 + 基础关系”编辑方式。</p></div><span>{data.people.length} 人</span></div>
       <div className="roster-table-wrap"><table className="roster-table">
         <thead><tr><th>人物</th><th>性别</th><th>公历生日</th><th>备注</th></tr></thead>
         <tbody>{data.people.map((person) => <tr key={person.id}>
@@ -893,9 +893,13 @@ function App() {
       <div className="modal-actions"><button type="button" onClick={() => setShowRoster(false)}>取消</button><button className="primary-button" type="submit">统一保存</button></div>
     </form></div>}
     {relationEditId && <div className="modal-backdrop relation-editor-layer" onMouseDown={() => setRelationEditId(null)}><form className="direct-relation-modal" onSubmit={editDirectRelations} onMouseDown={(event) => event.stopPropagation()}>
-      <div><span className="eyebrow">基础关系</span><h2>编辑 {data.people.find((person) => person.id === relationEditId)?.name} 的关系</h2><p>只维护现实中的直接连接；兄弟姐妹、祖孙、叔伯姑舅等会自动生成。</p></div>
-      <DirectRelationFields data={data} personId={relationEditId} compact/>
-      <div className="modal-actions"><button type="button" onClick={() => setRelationEditId(null)}>取消</button><button className="primary-button" type="submit">保存关系</button></div>
+      <div><span className="eyebrow">基础关系</span><h2>编辑 {data.people.find((person) => person.id === relationEditId)?.name} 的关系</h2><p>选择一位支点人物，再说明当前人物是对方的什么人。</p></div>
+      <RelationshipComposer data={data} subjectId={relationEditId} subjectName={data.people.find((person) => person.id === relationEditId)?.name ?? '当前人物'} defaultAnchorId={viewerId === relationEditId ? data.people.find((person) => person.id !== relationEditId)?.id : viewerId}/>
+      <div className="existing-relations"><span className="eyebrow">已记录的基础连接</span>
+        {data.parents.filter((item) => item.parentId === relationEditId || item.childId === relationEditId).map((item) => { const otherId = item.parentId === relationEditId ? item.childId : item.parentId; const other = data.people.find((person) => person.id === otherId)!; const label = item.parentId === relationEditId ? `是 ${other.name} 的父母` : `是 ${other.name} 的子女`; return <div key={`${item.parentId}-${item.childId}`}><span><strong>{other.name}</strong><small>{label}</small></span><button type="button" onClick={() => removeDirectRelation('parent', item.parentId, item.childId)}>移除</button></div> })}
+        {data.spouses.filter((item) => item.personAId === relationEditId || item.personBId === relationEditId).map((item) => { const otherId = item.personAId === relationEditId ? item.personBId : item.personAId; const other = data.people.find((person) => person.id === otherId)!; return <div key={`${item.personAId}-${item.personBId}`}><span><strong>{other.name}</strong><small>配偶</small></span><button type="button" onClick={() => removeDirectRelation('spouse', item.personAId, item.personBId)}>移除</button></div> })}
+      </div>
+      <div className="modal-actions"><button type="button" onClick={() => setRelationEditId(null)}>取消</button><button className="primary-button" type="submit">添加关系</button></div>
     </form></div>}
     {showBackup && <div className="modal-backdrop" onMouseDown={() => setShowBackup(false)}><section className="backup-modal" role="dialog" aria-modal="true" aria-labelledby="backup-title" onMouseDown={(e) => e.stopPropagation()}>
       <div><span className="eyebrow">本地档案</span><h2 id="backup-title">备份与恢复家谱</h2><p>数据只保存在当前浏览器。定期导出一份精简备份，可以在清理浏览器或更换设备后恢复。</p></div>

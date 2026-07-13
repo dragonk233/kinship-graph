@@ -2,6 +2,7 @@ import type { FamilyData, Gender, Person } from './types'
 
 export type RelationKind = 'parent' | 'child' | 'spouse' | 'sibling' | 'grandparent' | 'grandchild' | 'pibling' | 'nibling' | 'parentInLaw' | 'custom'
 export type DirectRelation = 'parent' | 'child' | 'spouse'
+export type BasicRelation = 'parent' | 'child' | 'sibling' | 'spouse'
 
 export interface RelationOption {
   id: RelationKind
@@ -102,6 +103,40 @@ export function replaceDirectRelations(data: FamilyData, personId: string, paren
       ...clean(spouseIds).map((spouseId) => ({ personAId: personId, personBId: spouseId })),
     ],
   }
+}
+
+export function addBasicRelationship(data: FamilyData, subjectId: string, anchorId: string, relation: BasicRelation): FamilyData {
+  if (subjectId === anchorId || !data.people.some((person) => person.id === subjectId) || !data.people.some((person) => person.id === anchorId)) return data
+  const next: FamilyData = { ...data, parents: [...data.parents], spouses: [...data.spouses] }
+  if (relation === 'parent') next.parents.push({ parentId: subjectId, childId: anchorId })
+  if (relation === 'child') next.parents.push({ parentId: anchorId, childId: subjectId })
+  if (relation === 'spouse') next.spouses.push({ personAId: anchorId, personBId: subjectId })
+  if (relation === 'sibling') {
+    const sharedParents = parentIds(data, anchorId)
+    sharedParents.forEach((parentId) => next.parents.push({ parentId, childId: subjectId }))
+  }
+  const parentKeys = new Set<string>()
+  const spouseKeys = new Set<string>()
+  return {
+    ...next,
+    parents: next.parents.filter((item) => { const key = `${item.parentId}:${item.childId}`; if (parentKeys.has(key)) return false; parentKeys.add(key); return true }),
+    spouses: next.spouses.filter((item) => { const key = [item.personAId, item.personBId].sort().join(':'); if (spouseKeys.has(key)) return false; spouseKeys.add(key); return true }),
+  }
+}
+
+export function basicRelationshipPreview(data: FamilyData, subjectName: string, anchorId: string, relation: BasicRelation) {
+  const anchor = data.people.find((person) => person.id === anchorId)
+  if (!anchor) return '请先选择一位支点人物'
+  if (relation === 'parent') return `${subjectName} → 是 ${anchor.name} 的父母`
+  if (relation === 'child') return `${anchor.name} → 是 ${subjectName} 的父母`
+  if (relation === 'sibling') return `${subjectName} ⇄ ${anchor.name}（共享父母）`
+  return `${subjectName} ⇄ ${anchor.name}（配偶）`
+}
+
+export function suggestedBasicPlacement(data: FamilyData, anchorId: string, relation: BasicRelation) {
+  const anchor = data.people.find((person) => person.id === anchorId)!
+  const generation = Math.max(0, Math.min(3, anchor.generation + (relation === 'parent' ? -1 : relation === 'child' ? 1 : 0)))
+  return { generation, ...findVacantPosition(data.people, anchor.x, 80 + generation * 210) }
 }
 
 /**

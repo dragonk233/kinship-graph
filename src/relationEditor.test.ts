@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { sampleFamily as initialFamily } from './data'
-import { addRelatedPerson, anchorIdsFor, ensureSpouseCoParents, genderLabel, replaceDirectRelations, resolvePersonOverlaps, suggestedPersonPlacement } from './relationEditor'
+import { addBasicRelationship, addRelatedPerson, anchorIdsFor, ensureSpouseCoParents, genderLabel, replaceDirectRelations, resolvePersonOverlaps, suggestedPersonPlacement } from './relationEditor'
 import { calculateKinship } from './kinship'
 import type { Person } from './types'
 
@@ -88,5 +88,12 @@ describe('完整关系录入', () => {
     expect(data.parents.filter((item) => item.childId === 'me')).toEqual([{ parentId: 'mother', childId: 'me' }])
     expect(data.parents.filter((item) => item.parentId === 'me')).toEqual([{ parentId: 'me', childId: 'daughter' }])
     expect(data.spouses.some((item) => [item.personAId, item.personBId].includes('me'))).toBe(true)
+  })
+
+  it('用支点人物和四种基础关系新增连接', () => {
+    const withSibling = addBasicRelationship(initialFamily, 'daughter', 'me', 'sibling')
+    const myParents = initialFamily.parents.filter((item) => item.childId === 'me').map((item) => item.parentId)
+    expect(withSibling.parents.filter((item) => item.childId === 'daughter').map((item) => item.parentId)).toEqual(expect.arrayContaining(myParents))
+    expect(addBasicRelationship(initialFamily, 'daughter', 'me', 'spouse').spouses).toContainEqual({ personAId: 'me', personBId: 'daughter' })
   })
 })

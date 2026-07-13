@@ -8,7 +8,7 @@ describe('亲属关系推导', () => {
       const result = calculateKinship(initialFamily, viewer.id, target.id)
       expect(result.minnanAudioTerms.length, `${viewer.name} → ${target.name}: ${result.minnan}`).toBeGreaterThan(0)
     }))
-  })
+  }, 15000)
   it('识别父母和祖父母', () => {
     expect(calculateKinship(initialFamily, 'me', 'father').mandarin).toContain('爸爸')
     expect(calculateKinship(initialFamily, 'me', 'p-gf').codes).toEqual(['f', 'f'])

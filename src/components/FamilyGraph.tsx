@@ -6,6 +6,7 @@ import type { FamilyData, Person } from '../types'
 import { Avatar } from './PersonFields'
 import { Icon } from './Icon'
 import { AdaptiveOverlay } from './AdaptiveOverlay'
+import { nodeActionForActivation } from './nodeInteraction'
 
 const CARD_W = 148
 const CARD_H = 94
@@ -347,7 +348,7 @@ export function FamilyGraph({ data, viewerId, selectedId, onSelect, onMakeViewer
           style={{ left: person.x, top: person.y }}
         >
           <button type="button" className={`person-node ${isViewer ? 'viewer' : ''} ${isSelected ? 'selected' : ''} ${outsideRelationshipFocus ? 'relationship-muted' : ''} ${relationshipFocus && focusIds.has(person.id) ? 'relationship-focused' : ''} ${generationView !== null && !matchesGenerationView(person.generation) ? 'generation-faded' : ''} ${generationView !== null && matchesGenerationView(person.generation) ? 'generation-highlighted' : ''} ${filteredOut ? 'legal-filtered-out' : ''} ${legalFilter && matchedIds.has(person.id) ? 'legal-filter-match' : ''}`}
-            onClick={() => { if (suppressClickRef.current === person.id) { suppressClickRef.current = null; return }; onSelect(person.id); setOpenActionsId(null) }} onDoubleClick={() => { setOpenActionsId(null); onMakeViewer(person.id) }} onPointerDown={(event) => { if (event.pointerType !== 'touch') return; const timer = window.setTimeout(() => { suppressClickRef.current = person.id; onSelect(person.id); setOpenActionsId(person.id) }, 460); longPressRef.current = { timer, personId: person.id } }} onPointerUp={() => { if (longPressRef.current?.personId === person.id) window.clearTimeout(longPressRef.current.timer); longPressRef.current = null }} onPointerCancel={() => { if (longPressRef.current?.personId === person.id) window.clearTimeout(longPressRef.current.timer); longPressRef.current = null }} onPointerLeave={() => { if (longPressRef.current?.personId === person.id) window.clearTimeout(longPressRef.current.timer); longPressRef.current = null }} aria-label={`${person.name}，${result.mandarin[0]}`}>
+            onClick={() => { if (suppressClickRef.current === person.id) { suppressClickRef.current = null; return }; if (nodeActionForActivation('single-click') === 'select') onSelect(person.id); setOpenActionsId(null) }} onDoubleClick={() => { setOpenActionsId(null); if (nodeActionForActivation('double-click') === 'edit') onEdit(person.id) }} onPointerDown={(event) => { if (event.pointerType !== 'touch') return; const timer = window.setTimeout(() => { suppressClickRef.current = person.id; onSelect(person.id); setOpenActionsId(person.id) }, 460); longPressRef.current = { timer, personId: person.id } }} onPointerUp={() => { if (longPressRef.current?.personId === person.id) window.clearTimeout(longPressRef.current.timer); longPressRef.current = null }} onPointerCancel={() => { if (longPressRef.current?.personId === person.id) window.clearTimeout(longPressRef.current.timer); longPressRef.current = null }} onPointerLeave={() => { if (longPressRef.current?.personId === person.id) window.clearTimeout(longPressRef.current.timer); longPressRef.current = null }} aria-label={`${person.name}，${result.mandarin[0]}`}>
             {isViewer && <span className="viewer-pin">我</span>}
             <Avatar person={person}/>
             <span className="node-copy"><strong>{person.name}</strong><small>{result.mandarin[0]}</small></span>

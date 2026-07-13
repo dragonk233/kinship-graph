@@ -1,4 +1,4 @@
-import { FormEvent, PointerEvent, useCallback, useEffect, useId, useMemo, useRef, useState, WheelEvent } from 'react'
+import { CSSProperties, FormEvent, PointerEvent, useCallback, useEffect, useId, useMemo, useRef, useState, WheelEvent } from 'react'
 import { createPortal } from 'react-dom'
 import { initialFamily, showcaseFamily } from './data'
 import { clearFamilyData, loadFamilyData, parseFamilyBackup, saveFamilyData, serializeFamilyBackup, serializeFamilyMarkdown } from './familyStorage'
@@ -200,13 +200,14 @@ function RosterRelationshipCell({ data, person, viewerId }: { data: FamilyData; 
   </div>
 }
 
-function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer, onAdd }: {
-  data: FamilyData; viewerId: string; selectedId: string; onSelect: (id: string) => void; onMakeViewer: (id: string) => void; onAdd: () => void
+function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer, onAdd, onEdit, onDelete }: {
+  data: FamilyData; viewerId: string; selectedId: string; onSelect: (id: string) => void; onMakeViewer: (id: string) => void; onAdd: (anchorId?: string) => void; onEdit: (id: string) => void; onDelete: (id: string) => void
 }) {
   const viewportRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{ pointerId: number; startX: number; startY: number; originX: number; originY: number } | null>(null)
   const [camera, setCamera] = useState({ x: 0, y: 0, scale: .72 })
   const [dragging, setDragging] = useState(false)
+  const [openActionsId, setOpenActionsId] = useState<string | null>(null)
   const [generationView, setGenerationView] = useState<number | null>(null)
   // Start with the complete family graph visible. Focus is an opt-in reading
   // aid; enabling it by default makes valid relationships look disconnected.
@@ -247,6 +248,12 @@ function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer, onAdd }: {
     document.addEventListener('keydown', closeOnEscape)
     return () => { document.removeEventListener('mousedown', closeOutside); document.removeEventListener('keydown', closeOnEscape) }
   }, [filterMenuOpen])
+
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setOpenActionsId(null) }
+    document.addEventListener('keydown', closeOnEscape)
+    return () => document.removeEventListener('keydown', closeOnEscape)
+  }, [])
 
   const fitView = useCallback(() => {
     const viewport = viewportRef.current
@@ -334,6 +341,7 @@ function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer, onAdd }: {
 
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
     if ((event.target as HTMLElement).closest('button')) return
+    setOpenActionsId(null)
     dragRef.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, originX: camera.x, originY: camera.y }
     event.currentTarget.setPointerCapture(event.pointerId)
     setDragging(true)
@@ -400,6 +408,24 @@ function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer, onAdd }: {
     const [left, right] = a.x <= b.x ? [a, b] : [b, a]
     return <path key={`${personAId}-${personBId}`} className={`spouse-line ${faded ? 'generation-faded' : ''} ${legalFaded ? 'view-filtered-out' : ''} ${relationshipFocus ? (focused ? 'relationship-focused' : 'relationship-muted') : ''}`} d={`M ${left.x + CARD_W - CONNECTION_OVERLAP} ${left.y + CARD_H / 2} L ${right.x + CONNECTION_OVERLAP} ${right.y + CARD_H / 2}`} />
   })
+  const actionPlacement = (person: Person) => {
+    const gap = 10
+    const actionWidth = 153 / camera.scale
+    const actionHeight = 44 / camera.scale
+    const candidates = [
+      { side: 'bottom', x: person.x + CARD_W / 2 - actionWidth / 2, y: person.y + CARD_H + gap },
+      { side: 'right', x: person.x + CARD_W + gap, y: person.y + CARD_H / 2 - actionHeight / 2 },
+      { side: 'left', x: person.x - gap - actionWidth, y: person.y + CARD_H / 2 - actionHeight / 2 },
+      { side: 'top', x: person.x + CARD_W / 2 - actionWidth / 2, y: person.y - gap - actionHeight },
+    ] as const
+    const overlapScore = (candidate: typeof candidates[number]) => data.people.reduce((score, other) => {
+      if (other.id === person.id) return score
+      const overlaps = candidate.x < other.x + CARD_W && candidate.x + actionWidth > other.x
+        && candidate.y < other.y + CARD_H && candidate.y + actionHeight > other.y
+      return score + (overlaps ? 1 : 0)
+    }, 0)
+    return candidates.reduce((best, candidate) => overlapScore(candidate) < overlapScore(best) ? candidate : best).side
+  }
   return <div
     ref={viewportRef}
     className={`graph-viewport ${dragging ? 'dragging' : ''}`}
@@ -410,7 +436,7 @@ function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer, onAdd }: {
     onPointerUp={endDrag}
     onPointerCancel={endDrag}
   >
-    <div className="graph-stage" style={{ transform: `translate3d(${camera.x}px, ${camera.y}px, 0) scale(${camera.scale})` }}>
+    <div className="graph-stage" style={{ transform: `translate3d(${camera.x}px, ${camera.y}px, 0) scale(${camera.scale})`, '--canvas-scale': camera.scale } as CSSProperties}>
       <svg className="connections" viewBox="0 0 1400 830" aria-hidden="true">{parentLines}{spouseLines}</svg>
       {data.people.map((person) => {
         const result = calculateKinship(data, viewerId, person.id)
@@ -418,18 +444,25 @@ function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer, onAdd }: {
         const isSelected = person.id === selectedId
         const filteredOut = legalFilter !== null && !matchedIds.has(person.id) && !isViewer
         const outsideRelationshipFocus = relationshipFocus && !focusIds.has(person.id)
-        return <button
+        return <div
           key={person.id}
-          className={`person-node ${isViewer ? 'viewer' : ''} ${isSelected ? 'selected' : ''} ${outsideRelationshipFocus ? 'relationship-muted' : ''} ${relationshipFocus && focusIds.has(person.id) ? 'relationship-focused' : ''} ${generationView !== null && !matchesGenerationView(person.generation) ? 'generation-faded' : ''} ${generationView !== null && matchesGenerationView(person.generation) ? 'generation-highlighted' : ''} ${filteredOut ? 'legal-filtered-out' : ''} ${legalFilter && matchedIds.has(person.id) ? 'legal-filter-match' : ''}`}
+          className={`person-node-wrap ${openActionsId === person.id ? 'actions-open' : ''} ${isSelected ? 'selected' : ''}`}
           style={{ left: person.x, top: person.y }}
-          onClick={() => onSelect(person.id)}
-          onDoubleClick={() => onMakeViewer(person.id)}
-          aria-label={`${person.name}，${result.mandarin[0]}`}
         >
-          {isViewer && <span className="viewer-pin">我</span>}
-          <Avatar person={person}/>
-          <span className="node-copy"><strong>{person.name}</strong><small>{result.mandarin[0]}</small></span>
-        </button>
+          <button type="button" className={`person-node ${isViewer ? 'viewer' : ''} ${isSelected ? 'selected' : ''} ${outsideRelationshipFocus ? 'relationship-muted' : ''} ${relationshipFocus && focusIds.has(person.id) ? 'relationship-focused' : ''} ${generationView !== null && !matchesGenerationView(person.generation) ? 'generation-faded' : ''} ${generationView !== null && matchesGenerationView(person.generation) ? 'generation-highlighted' : ''} ${filteredOut ? 'legal-filtered-out' : ''} ${legalFilter && matchedIds.has(person.id) ? 'legal-filter-match' : ''}`}
+            onClick={() => { onSelect(person.id); setOpenActionsId(null) }} onDoubleClick={() => { setOpenActionsId(null); onMakeViewer(person.id) }} aria-label={`${person.name}，${result.mandarin[0]}`} aria-expanded={openActionsId === person.id}>
+            {isViewer && <span className="viewer-pin">我</span>}
+            <Avatar person={person}/>
+            <span className="node-copy"><strong>{person.name}</strong><small>{result.mandarin[0]}</small></span>
+          </button>
+          {isSelected && openActionsId !== person.id && <button className="node-more-button" type="button" onClick={() => setOpenActionsId(person.id)} aria-label={`打开${person.name}的操作栏`} title="更多操作">•••</button>}
+          {openActionsId === person.id && <div className={`node-actions actions-${actionPlacement(person)}`} role="toolbar" aria-label={`${person.name}的快捷操作`}>
+            <button type="button" onClick={() => { setOpenActionsId(null); onAdd(person.id) }} aria-label={`为${person.name}新增亲属`} title="新增亲属"><Icon name="plus"/><span>新增</span></button>
+            <button type="button" onClick={() => { setOpenActionsId(null); onEdit(person.id) }} aria-label={`编辑${person.name}`} title="编辑人物"><Icon name="edit"/><span>编辑</span></button>
+            <button type="button" disabled={isViewer} onClick={() => { setOpenActionsId(null); onMakeViewer(person.id) }} aria-label={`以${person.name}为主视角`} title={isViewer ? '当前已是主视角' : '设为主视角'}><Icon name="person"/><span>主视角</span></button>
+            <button className="node-delete-action" type="button" disabled={data.people.length <= 1} onClick={() => { setOpenActionsId(null); onDelete(person.id) }} aria-label={`删除${person.name}`} title="删除人物"><Icon name="trash"/><span>删除</span></button>
+          </div>}
+        </div>
       })}
     </div>
     <div className="quick-filter" ref={filterRef}>
@@ -463,7 +496,6 @@ function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer, onAdd }: {
       <i />
       <button className="fit-button" onClick={fitView} aria-label="适应全部人物">适应</button>
     </div>
-    <button className="canvas-add-button" onClick={onAdd}><Icon name="plus"/><span>添加亲人</span></button>
     <div className="pan-hint">按住空白处拖动 · 滚轮缩放</div>
   </div>
 }
@@ -608,8 +640,17 @@ function App() {
     window.setTimeout(() => setToast(''), 2200)
   }
 
-  const openAdd = () => {
+  const openAdd = (anchorId?: string) => {
+    if (anchorId) setSelectedId(anchorId)
     setShowAdd(true)
+  }
+
+  const openCanvasEdit = (personId: string) => {
+    const person = data.people.find((item) => item.id === personId)
+    if (!person) return
+    setSelectedId(personId)
+    setAvatarDraft(person.avatar)
+    setShowEdit(true)
   }
 
   const removeDirectRelation = (type: 'parent' | 'spouse', firstId: string, secondId: string) => {
@@ -888,12 +929,12 @@ function App() {
             </button>
           })}
         </div>
-        <div className="legend"><span><i className="blood-dot"/>血缘</span><span><i className="spouse-dot"/>婚姻</span><small>双击人物也可切换视角</small></div>
+        <div className="legend"><span><i className="blood-dot"/>血缘</span><span><i className="spouse-dot"/>婚姻</span></div>
       </aside>
 
       <section className="canvas-panel">
-        <div className="canvas-heading"><div><span className="eyebrow">家族关系画布</span><h1>从 <b>{viewer.name}</b> 看这个家</h1></div><button className="mobile-selection-link" type="button" onClick={() => setMobileView('detail')}><span>已选</span><strong>{selected.name}</strong><i>›</i></button><div className="canvas-note"><span>提示</span>点击查看，双击设为主视角</div></div>
-        <Graph data={data} viewerId={viewerId} selectedId={selectedId} onSelect={setSelectedId} onMakeViewer={makeViewer} onAdd={openAdd}/>
+        <div className="canvas-heading"><span className="eyebrow">家族关系画布</span><button className="mobile-selection-link" type="button" onClick={() => setMobileView('detail')}><span>已选</span><strong>{selected.name}</strong><i>›</i></button></div>
+        <Graph data={data} viewerId={viewerId} selectedId={selectedId} onSelect={setSelectedId} onMakeViewer={makeViewer} onAdd={openAdd} onEdit={openCanvasEdit} onDelete={setDeleteTargetId}/>
       </section>
 
       <aside className="detail-panel">

@@ -38,6 +38,10 @@
   --radius-card: 8px;
   --radius-overlay: 10px;
   --shadow-overlay: 0 16px 44px rgba(54, 43, 31, .14);
+  --control-min-touch: 44px;
+  --overlay-edge: 12px;
+  --overlay-menu-width: 188px;
+  --overlay-z: 60;
   --motion-fast: 140ms;
   --motion-normal: 220ms;
   --ease-out: cubic-bezier(.2, .8, .2, 1);
@@ -63,4 +67,3 @@
     transition-duration: .01ms !important;
   }
 }
-

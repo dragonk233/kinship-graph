@@ -392,7 +392,13 @@ function App() {
 
   const deletePerson = () => {
     if (!deleteTarget || data.people.length <= 1) return
-    const fallback = data.people.find((person) => person.id !== deleteTarget.id)!
+    const relatedIds = [
+      ...data.parents.flatMap(({ parentId, childId }) => parentId === deleteTarget.id ? [childId] : childId === deleteTarget.id ? [parentId] : []),
+      ...data.spouses.flatMap(({ personAId, personBId }) => personAId === deleteTarget.id ? [personBId] : personBId === deleteTarget.id ? [personAId] : []),
+    ]
+    const fallback = relatedIds.map((id) => data.people.find((person) => person.id === id)).find(Boolean)
+      ?? data.people.find((person) => person.id === HOME_ID && person.id !== deleteTarget.id)
+      ?? data.people.find((person) => person.id !== deleteTarget.id)!
     updateData((current) => ({
       people: current.people.filter((person) => person.id !== deleteTarget.id),
       parents: current.parents.filter(({ parentId, childId }) => parentId !== deleteTarget.id && childId !== deleteTarget.id),

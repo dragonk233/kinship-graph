@@ -47,7 +47,6 @@ export function Workspace({ data, viewerId, selectedId, query, mobileView, speak
     </aside>
 
     <section className="canvas-panel">
-      <div className="canvas-heading"><span className="eyebrow">家族关系画布</span><button className="mobile-selection-link" type="button" onClick={() => onMobileViewChange('detail')}><span>已选</span><strong>{selected.name}</strong><i>›</i></button></div>
       <FamilyGraph data={data} viewerId={viewerId} selectedId={selectedId} onSelect={onSelect} onMakeViewer={onMakeViewer} onAdd={onAdd} onEdit={onCanvasEdit} onDelete={onDelete}/>
     </section>
 

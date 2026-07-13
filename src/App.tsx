@@ -12,6 +12,7 @@ import { birthYearFromDate, formatLunarBirthday, formatSolarBirthday, isBirthDat
 import { inspectFamilyHealth } from './familyHealth'
 import { legalFilterOptions, matchesLegalFilter } from './legalKinship'
 import type { LegalFilterId } from './legalKinship'
+import { useRegisterSW } from 'virtual:pwa-register/react'
 
 const HOME_ID = 'me'
 const CARD_W = 148
@@ -20,6 +21,27 @@ const CARD_H = 94
 // where a tiny overlap can be rounded into a visible gap at the card border.
 const CONNECTION_OVERLAP = 12
 const AVATAR_FEATURE_ENABLED = false
+const MODIFIED_AT_KEY = 'kinship-map:last-modified-at'
+const BACKED_UP_AT_KEY = 'kinship-map:last-backed-up-at'
+
+function storedDate(key: string) {
+  const value = localStorage.getItem(key)
+  return value && !Number.isNaN(Date.parse(value)) ? value : null
+}
+
+function formatStoredDate(value: string | null) {
+  if (!value) return '尚未记录'
+  return new Intl.DateTimeFormat('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(value))
+}
+
+function downloadBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = filename
+  link.click()
+  window.setTimeout(() => URL.revokeObjectURL(url), 0)
+}
 
 function Icon({ name }: { name: 'search' | 'home' | 'plus' | 'route' | 'person' | 'edit' | 'speaker' | 'trash' }) {
   const paths = {
@@ -205,7 +227,16 @@ function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer, onAdd, onEd
 }) {
   const viewportRef = useRef<HTMLDivElement>(null)
   const dragRef = useRef<{ pointerId: number; startX: number; startY: number; originX: number; originY: number } | null>(null)
-  const [camera, setCamera] = useState({ x: 0, y: 0, scale: .72 })
+  const pointersRef = useRef(new Map<number, { x: number; y: number }>())
+  const pinchRef = useRef<{ distance: number; centerX: number; centerY: number; camera: { x: number; y: number; scale: number } } | null>(null)
+  const restoredCamera = useMemo(() => {
+    try {
+      const stored = JSON.parse(sessionStorage.getItem('kinship-map:camera') ?? '')
+      return Number.isFinite(stored.x) && Number.isFinite(stored.y) && Number.isFinite(stored.scale) ? stored : null
+    } catch { return null }
+  }, [])
+  const hasInitialCameraRef = useRef(Boolean(restoredCamera))
+  const [camera, setCamera] = useState<{ x: number; y: number; scale: number }>(restoredCamera ?? { x: 0, y: 0, scale: .72 })
   const [dragging, setDragging] = useState(false)
   const [openActionsId, setOpenActionsId] = useState<string | null>(null)
   const [generationView, setGenerationView] = useState<number | null>(null)
@@ -276,11 +307,14 @@ function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer, onAdd, onEd
   }, [data.people])
 
   useEffect(() => {
+    if (hasInitialCameraRef.current) return
     fitView()
-    const observer = new ResizeObserver(fitView)
-    if (viewportRef.current) observer.observe(viewportRef.current)
-    return () => observer.disconnect()
-  }, [fitView])
+    hasInitialCameraRef.current = true
+  }, [fitView, restoredCamera])
+
+  useEffect(() => {
+    sessionStorage.setItem('kinship-map:camera', JSON.stringify(camera))
+  }, [camera])
 
   const zoomAtCenter = (factor: number) => {
     const viewport = viewportRef.current
@@ -340,6 +374,22 @@ function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer, onAdd, onEd
   }
 
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'touch') {
+      pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
+      if (pointersRef.current.size === 2) {
+        const [a, b] = [...pointersRef.current.values()]
+        pinchRef.current = {
+          distance: Math.hypot(a.x - b.x, a.y - b.y),
+          centerX: (a.x + b.x) / 2,
+          centerY: (a.y + b.y) / 2,
+          camera,
+        }
+        dragRef.current = null
+        setDragging(false)
+        event.currentTarget.setPointerCapture(event.pointerId)
+        return
+      }
+    }
     if ((event.target as HTMLElement).closest('button')) return
     setOpenActionsId(null)
     dragRef.current = { pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, originX: camera.x, originY: camera.y }
@@ -348,15 +398,37 @@ function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer, onAdd, onEd
   }
 
   const onPointerMove = (event: PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === 'touch' && pointersRef.current.has(event.pointerId)) {
+      pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
+      if (pointersRef.current.size >= 2 && pinchRef.current) {
+        const viewport = viewportRef.current
+        const [a, b] = [...pointersRef.current.values()]
+        if (!viewport) return
+        const rect = viewport.getBoundingClientRect()
+        const distance = Math.max(1, Math.hypot(a.x - b.x, a.y - b.y))
+        const centerX = (a.x + b.x) / 2 - rect.left
+        const centerY = (a.y + b.y) / 2 - rect.top
+        const originCenterX = pinchRef.current.centerX - rect.left
+        const originCenterY = pinchRef.current.centerY - rect.top
+        const scale = Math.min(1.6, Math.max(.3, pinchRef.current.camera.scale * distance / Math.max(1, pinchRef.current.distance)))
+        const worldX = (originCenterX - pinchRef.current.camera.x) / pinchRef.current.camera.scale
+        const worldY = (originCenterY - pinchRef.current.camera.y) / pinchRef.current.camera.scale
+        setCamera({ scale, x: centerX - worldX * scale, y: centerY - worldY * scale })
+        return
+      }
+    }
     const drag = dragRef.current
     if (!drag || drag.pointerId !== event.pointerId) return
     setCamera((current) => ({ ...current, x: drag.originX + event.clientX - drag.startX, y: drag.originY + event.clientY - drag.startY }))
   }
 
   const endDrag = (event: PointerEvent<HTMLDivElement>) => {
-    if (dragRef.current?.pointerId !== event.pointerId) return
-    dragRef.current = null
-    setDragging(false)
+    pointersRef.current.delete(event.pointerId)
+    if (pointersRef.current.size < 2) pinchRef.current = null
+    if (dragRef.current?.pointerId === event.pointerId) {
+      dragRef.current = null
+      setDragging(false)
+    }
   }
   const parentGroups = new Map<string, { parentIds: string[]; childIds: string[] }>()
   const parentsByChild = new Map<string, string[]>()
@@ -496,7 +568,7 @@ function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer, onAdd, onEd
       <i />
       <button className="fit-button" onClick={fitView} aria-label="适应全部人物">适应</button>
     </div>
-    <div className="pan-hint">按住空白处拖动 · 滚轮缩放</div>
+    <div className="pan-hint">按住空白处拖动 · 滚轮或双指缩放</div>
   </div>
 }
 
@@ -514,6 +586,8 @@ function App() {
   const [showReset, setShowReset] = useState(false)
   const [showShowcase, setShowShowcase] = useState(false)
   const [showRoster, setShowRoster] = useState(false)
+  const [showAppStatus, setShowAppStatus] = useState(false)
+  const [showInstallHelp, setShowInstallHelp] = useState(false)
   const [relationEditId, setRelationEditId] = useState<string | null>(null)
   const [pairAId, setPairAId] = useState(HOME_ID)
   const [pairBId, setPairBId] = useState(HOME_ID)
@@ -527,6 +601,17 @@ function App() {
   const [canUndo, setCanUndo] = useState(false)
   const [mobileView, setMobileView] = useState<'graph' | 'people' | 'detail'>('graph')
   const [mobileToolsOpen, setMobileToolsOpen] = useState(false)
+  const [installPrompt, setInstallPrompt] = useState<BeforeInstallPromptEvent | null>(null)
+  const [online, setOnline] = useState(navigator.onLine)
+  const [isStandalone, setIsStandalone] = useState(window.matchMedia('(display-mode: standalone)').matches)
+  const [storagePersistent, setStoragePersistent] = useState<boolean | null>(null)
+  const [storageUsage, setStorageUsage] = useState<{ usage: number; quota: number } | null>(null)
+  const [modifiedAt, setModifiedAt] = useState(() => storedDate(MODIFIED_AT_KEY))
+  const [backedUpAt, setBackedUpAt] = useState(() => storedDate(BACKED_UP_AT_KEY))
+  const [backupReminderDismissed, setBackupReminderDismissed] = useState(false)
+  const { needRefresh: [needRefresh, setNeedRefresh], updateServiceWorker } = useRegisterSW({
+    onRegisterError: () => setToast('离线功能注册失败，请联网后重试'),
+  })
 
   const viewer = data.people.find((p) => p.id === viewerId)!
   const selected = data.people.find((p) => p.id === selectedId)!
@@ -542,6 +627,9 @@ function App() {
     historyRef.current = [...historyRef.current.slice(-19), data]
     setCanUndo(true)
     setData(updater(data))
+    const now = new Date().toISOString()
+    localStorage.setItem(MODIFIED_AT_KEY, now)
+    setModifiedAt(now)
   }
 
   const undo = () => {
@@ -549,6 +637,9 @@ function App() {
     if (!previous) return
     historyRef.current = historyRef.current.slice(0, -1)
     setData(previous)
+    const now = new Date().toISOString()
+    localStorage.setItem(MODIFIED_AT_KEY, now)
+    setModifiedAt(now)
     setCanUndo(historyRef.current.length > 0)
     setToast('已撤销上一步家谱修改')
     window.setTimeout(() => setToast(''), 2200)
@@ -575,6 +666,51 @@ function App() {
       })
     return () => { active = false }
   }, [])
+
+  useEffect(() => {
+    const setConnected = () => setOnline(true)
+    const setDisconnected = () => setOnline(false)
+    const displayMode = window.matchMedia('(display-mode: standalone)')
+    const updateDisplayMode = () => setIsStandalone(displayMode.matches)
+    const captureInstall = (event: Event) => {
+      event.preventDefault()
+      setInstallPrompt(event as BeforeInstallPromptEvent)
+    }
+    window.addEventListener('online', setConnected)
+    window.addEventListener('offline', setDisconnected)
+    window.addEventListener('beforeinstallprompt', captureInstall)
+    window.addEventListener('appinstalled', updateDisplayMode)
+    displayMode.addEventListener('change', updateDisplayMode)
+    return () => {
+      window.removeEventListener('online', setConnected)
+      window.removeEventListener('offline', setDisconnected)
+      window.removeEventListener('beforeinstallprompt', captureInstall)
+      window.removeEventListener('appinstalled', updateDisplayMode)
+      displayMode.removeEventListener('change', updateDisplayMode)
+    }
+  }, [])
+
+  const refreshStorageStatus = useCallback(async () => {
+    if (!navigator.storage) return
+    try {
+      const persistent = await navigator.storage.persisted()
+      const granted = persistent || await navigator.storage.persist()
+      setStoragePersistent(granted)
+      const estimate = await navigator.storage.estimate()
+      setStorageUsage({ usage: estimate.usage ?? 0, quota: estimate.quota ?? 0 })
+    } catch {
+      setStoragePersistent(false)
+    }
+  }, [])
+
+  useEffect(() => { void refreshStorageStatus() }, [refreshStorageStatus])
+
+  const shouldRemindBackup = useMemo(() => {
+    if (backupReminderDismissed || data.people.length <= 5) return false
+    if (!backedUpAt) return true
+    if (!modifiedAt || Date.parse(modifiedAt) <= Date.parse(backedUpAt)) return false
+    return Date.now() - Date.parse(backedUpAt) > 30 * 24 * 60 * 60 * 1000
+  }, [backedUpAt, backupReminderDismissed, data.people.length, modifiedAt])
 
   useEffect(() => {
     if (!storageReady) return
@@ -807,28 +943,49 @@ function App() {
     window.setTimeout(() => setToast(''), 2400)
   }
 
-  const exportBackup = () => {
-    const blob = new Blob([serializeFamilyBackup(data)], { type: 'application/json' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `亲族图谱-${new Date().toISOString().slice(0, 10)}.json`
-    link.click()
-    URL.revokeObjectURL(url)
-    setToast('家谱备份已导出')
+  const shareOrDownload = async (contents: string, type: string, filename: string) => {
+    const file = new File([contents], filename, { type })
+    try {
+      if (navigator.canShare?.({ files: [file] })) {
+        await navigator.share({ files: [file], title: filename })
+        return 'shared'
+      }
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') return 'cancelled'
+    }
+    downloadBlob(file, filename)
+    return 'downloaded'
+  }
+
+  const exportBackup = async () => {
+    const filename = `亲族图谱-${new Date().toISOString().slice(0, 10)}.json`
+    const result = await shareOrDownload(serializeFamilyBackup(data), 'application/json', filename)
+    if (result === 'cancelled') return
+    const now = new Date().toISOString()
+    localStorage.setItem(BACKED_UP_AT_KEY, now)
+    setBackedUpAt(now)
+    setBackupReminderDismissed(true)
+    setToast(result === 'shared' ? '家谱备份已发送到系统分享' : '家谱备份已导出')
     window.setTimeout(() => setToast(''), 2200)
   }
 
-  const exportMarkdown = () => {
-    const blob = new Blob([serializeFamilyMarkdown(data)], { type: 'text/markdown;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `亲族图谱-${new Date().toISOString().slice(0, 10)}.md`
-    link.click()
-    URL.revokeObjectURL(url)
-    setToast('可读家谱已导出')
+  const exportMarkdown = async () => {
+    const filename = `亲族图谱-${new Date().toISOString().slice(0, 10)}.md`
+    const result = await shareOrDownload(serializeFamilyMarkdown(data), 'text/markdown;charset=utf-8', filename)
+    if (result === 'cancelled') return
+    setToast(result === 'shared' ? '可读家谱已发送到系统分享' : '可读家谱已导出')
     window.setTimeout(() => setToast(''), 2200)
+  }
+
+  const installApp = async () => {
+    if (installPrompt) {
+      await installPrompt.prompt()
+      const choice = await installPrompt.userChoice
+      if (choice.outcome === 'accepted') setIsStandalone(true)
+      setInstallPrompt(null)
+      return
+    }
+    setShowInstallHelp(true)
   }
 
   const importBackup = async (file?: File) => {
@@ -864,6 +1021,9 @@ function App() {
       setQuery('')
       setPairAId(HOME_ID)
       setPairBId(HOME_ID)
+      const now = new Date().toISOString()
+      localStorage.setItem(MODIFIED_AT_KEY, now)
+      setModifiedAt(now)
       setShowReset(false)
       setToast('本地家谱已清空，可以重新配置')
       window.setTimeout(() => setToast(''), 2600)
@@ -909,11 +1069,16 @@ function App() {
         <button className="backup-button" onClick={() => { setPairAId(viewerId); setPairBId(selectedId === viewerId ? data.people.find((person) => person.id !== viewerId)?.id ?? viewerId : selectedId); setShowPair(true) }}>两人关系</button>
         <button className={`backup-button ${healthIssues.length ? 'has-issues' : ''}`} onClick={() => setShowHealth(true)}>检查{healthIssues.length ? ` · ${healthIssues.length}` : ''}</button>
         <button className="backup-button" onClick={() => setShowBackup(true)}>备份</button>
+        {!isStandalone && <button className="backup-button" onClick={() => void installApp()}>安装到桌面</button>}
+        <button className="backup-button" onClick={() => { setShowAppStatus(true); void refreshStorageStatus() }}>应用状态</button>
         <button className="showcase-button" onClick={() => setShowShowcase(true)}><Icon name="plus"/>生成示例</button>
         <button className="reset-button" onClick={() => setShowReset(true)}><Icon name="trash"/>清空</button>
         </div>
       </div>
     </header>
+
+    {shouldRemindBackup && <aside className="backup-reminder" role="status"><span><strong>给这份家谱留一份本地备份</strong><small>{backedUpAt ? `上次备份：${formatStoredDate(backedUpAt)}` : `已经记录 ${data.people.length} 位亲人，尚未导出恢复文件`}</small></span><button type="button" onClick={() => setShowBackup(true)}>现在备份</button><button className="reminder-dismiss" type="button" aria-label="暂时关闭备份提醒" onClick={() => setBackupReminderDismissed(true)}>×</button></aside>}
+    {needRefresh && <aside className="update-reminder" role="status"><span><strong>亲族图谱已有新版本</strong><small>家谱数据会继续保存在本机</small></span><button type="button" onClick={() => void updateServiceWorker(true)}>重新加载</button><button className="reminder-dismiss" type="button" aria-label="稍后更新" onClick={() => setNeedRefresh(false)}>×</button></aside>}
 
     <main className={`workspace mobile-view-${mobileView}`}>
       <aside className="people-panel">
@@ -1005,11 +1170,11 @@ function App() {
       <div className="roster-table-wrap"><table className="roster-table">
         <thead><tr><th>人物</th><th>是谁的什么人</th><th>性别</th><th>公历生日</th><th>备注</th></tr></thead>
         <tbody>{data.people.map((person) => <tr key={person.id}>
-          <td><div className="roster-person"><Avatar person={person} size="small"/><div><input name={`name:${person.id}`} defaultValue={person.name} aria-label={`${person.name}的姓名`} required/></div></div></td>
-          <td><RosterRelationshipCell data={data} person={person} viewerId={viewerId}/></td>
-          <td><select name={`gender:${person.id}`} defaultValue={person.gender} aria-label={`${person.name}的性别`}><option value="male">男性</option><option value="female">女性</option></select></td>
-          <td><input name={`birthDate:${person.id}`} type="date" defaultValue={person.birthDate ?? ''} aria-label={`${person.name}的公历生日`}/></td>
-          <td><input name={`note:${person.id}`} defaultValue={person.note ?? ''} placeholder="小名、籍贯、家庭记忆" aria-label={`${person.name}的备注`}/></td>
+          <td data-label="人物"><div className="roster-person"><Avatar person={person} size="small"/><div><input name={`name:${person.id}`} defaultValue={person.name} aria-label={`${person.name}的姓名`} required/></div></div></td>
+          <td data-label="基础关系"><RosterRelationshipCell data={data} person={person} viewerId={viewerId}/></td>
+          <td data-label="性别"><select name={`gender:${person.id}`} defaultValue={person.gender} aria-label={`${person.name}的性别`}><option value="male">男性</option><option value="female">女性</option></select></td>
+          <td data-label="公历生日"><input name={`birthDate:${person.id}`} type="date" defaultValue={person.birthDate ?? ''} aria-label={`${person.name}的公历生日`}/></td>
+          <td data-label="备注"><input name={`note:${person.id}`} defaultValue={person.note ?? ''} placeholder="小名、籍贯、家庭记忆" aria-label={`${person.name}的备注`}/></td>
         </tr>)}</tbody>
       </table></div>
       <div className="modal-actions"><button type="button" onClick={() => setShowRoster(false)}>取消</button><button className="primary-button" type="submit">统一保存</button></div>
@@ -1026,11 +1191,22 @@ function App() {
     {showBackup && <div className="modal-backdrop" onMouseDown={() => setShowBackup(false)}><section className="backup-modal" role="dialog" aria-modal="true" aria-labelledby="backup-title" onMouseDown={(e) => e.stopPropagation()}>
       <div><span className="eyebrow">本地档案</span><h2 id="backup-title">备份与恢复家谱</h2><p>数据只保存在当前浏览器。定期导出一份精简备份，可以在清理浏览器或更换设备后恢复。</p></div>
       <div className="backup-options">
-        <section><strong>导出 JSON 备份</strong><p>用于完整恢复家谱，不含头像和历史记录。</p><button type="button" onClick={exportBackup}>导出备份</button></section>
-        <section><strong>导出可读家谱</strong><p>下载含 Mermaid 图和人物资料的 Markdown 文件。</p><button type="button" onClick={exportMarkdown}>导出 Markdown</button></section>
+        <section><strong>导出 JSON 备份</strong><p>用于完整恢复家谱，不含头像和历史记录。</p><button type="button" onClick={() => void exportBackup()}>导出或分享</button></section>
+        <section><strong>导出可读家谱</strong><p>下载或分享含 Mermaid 图和人物资料的 Markdown 文件。</p><button type="button" onClick={() => void exportMarkdown()}>导出或分享</button></section>
         <section><strong>从备份恢复</strong><p>导入会覆盖当前家谱，文件必须来自本应用且不超过 1MB。</p><label className="import-backup-button">选择备份文件<input type="file" accept="application/json,.json" onChange={(event) => { void importBackup(event.target.files?.[0]); event.currentTarget.value = '' }}/></label></section>
       </div>
+      <dl className="backup-meta"><div><dt>最近修改</dt><dd>{formatStoredDate(modifiedAt)}</dd></div><div><dt>最近备份</dt><dd>{formatStoredDate(backedUpAt)}</dd></div><div><dt>档案规模</dt><dd>{data.people.length} 人 · {data.parents.length + data.spouses.length} 条关系</dd></div></dl>
       <div className="modal-actions"><button type="button" onClick={() => setShowBackup(false)}>关闭</button></div>
+    </section></div>}
+    {showAppStatus && <div className="modal-backdrop" onMouseDown={() => setShowAppStatus(false)}><section className="app-status-modal" role="dialog" aria-modal="true" aria-labelledby="app-status-title" onMouseDown={(event) => event.stopPropagation()}>
+      <div><span className="eyebrow">运行与存储</span><h2 id="app-status-title">应用状态</h2><p>家谱只保存在这台设备的当前应用空间中。</p></div>
+      <dl className="app-status-list"><div><dt>网络</dt><dd className={online ? 'ok' : 'offline'}>{online ? '已联网' : '离线可用'}</dd></div><div><dt>打开方式</dt><dd>{isStandalone ? '桌面应用' : '浏览器网页'}</dd></div><div><dt>本地存储</dt><dd className={storagePersistent ? 'ok' : ''}>{storagePersistent === null ? '正在检查' : storagePersistent ? '已申请持久保留' : '由浏览器管理'}</dd></div><div><dt>存储占用</dt><dd>{storageUsage ? `${Math.max(.1, storageUsage.usage / 1024 / 1024).toFixed(1)} MB` : '暂不可读'}</dd></div><div><dt>应用版本</dt><dd>v{__APP_VERSION__}</dd></div><div><dt>最近修改</dt><dd>{formatStoredDate(modifiedAt)}</dd></div><div><dt>最近备份</dt><dd>{formatStoredDate(backedUpAt)}</dd></div></dl>
+      <div className="status-actions">{!isStandalone && <button type="button" onClick={() => void installApp()}>安装到桌面</button>}<button type="button" onClick={() => { setShowAppStatus(false); setShowBackup(true) }}>备份家谱</button>{needRefresh && <button type="button" onClick={() => void updateServiceWorker(true)}>安装更新</button>}</div>
+      <div className="modal-actions"><button type="button" onClick={() => setShowAppStatus(false)}>完成</button></div>
+    </section></div>}
+    {showInstallHelp && <div className="modal-backdrop" onMouseDown={() => setShowInstallHelp(false)}><section className="install-modal" role="dialog" aria-modal="true" aria-labelledby="install-title" onMouseDown={(event) => event.stopPropagation()}>
+      <span className="brand-seal">亲</span><div><span className="eyebrow">安装到手机桌面</span><h2 id="install-title">像应用一样打开亲族图谱</h2><p>iPhone：在 Safari 中点“分享”，再选“添加到主屏幕”。Android：打开浏览器菜单，选择“安装应用”或“添加到主屏幕”。</p></div><div className="install-note">安装后仍使用本机档案；请定期导出 JSON 备份。</div>
+      <div className="modal-actions"><button type="button" onClick={() => setShowInstallHelp(false)}>知道了</button></div>
     </section></div>}
     {deleteTarget && <div className="modal-backdrop" onMouseDown={() => setDeleteTargetId(null)}><section className="confirm-modal" role="alertdialog" aria-modal="true" aria-labelledby="delete-person-title" onMouseDown={(e) => e.stopPropagation()}>
       <div className="danger-mark"><Icon name="trash"/></div>

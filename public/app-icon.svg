@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="92" fill="#f5f1e8"/>
+  <rect x="88" y="88" width="336" height="336" rx="42" fill="#a53a2b"/>
+  <rect x="102" y="102" width="308" height="308" rx="32" fill="none" stroke="#fff8ee" stroke-opacity=".22" stroke-width="5"/>
+  <text x="256" y="342" text-anchor="middle" font-family="Songti SC,Noto Serif CJK SC,serif" font-size="238" font-weight="600" fill="#fff8ee">亲</text>
+</svg>

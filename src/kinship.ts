@@ -41,14 +41,15 @@ export function buildGraph(data: FamilyData): Map<string, Edge[]> {
   const graph = new Map(data.people.map((person) => [person.id, [] as Edge[]]))
   const add = (from: string, edge: Edge) => graph.get(from)?.push(edge)
 
-  data.parents.forEach(({ parentId, childId }) => {
+  data.parents.forEach(({ parentId, childId, kind = 'biological' }) => {
     const parent = personById(data, parentId)
     const child = personById(data, childId)
-    add(childId, { to: parentId, code: parent.gender === 'male' ? 'f' : 'm', label: parent.gender === 'male' ? '父亲' : '母亲', priority: 1 })
-    add(parentId, { to: childId, code: child.gender === 'male' ? 's' : 'd', label: child.gender === 'male' ? '儿子' : '女儿', priority: 2 })
+    const prefix = kind === 'adoptive' ? '养' : kind === 'step' ? '继' : ''
+    add(childId, { to: parentId, code: parent.gender === 'male' ? 'f' : 'm', label: `${prefix}${parent.gender === 'male' ? '父亲' : '母亲'}`, priority: 1 })
+    add(parentId, { to: childId, code: child.gender === 'male' ? 's' : 'd', label: `${prefix}${child.gender === 'male' ? '儿子' : '女儿'}`, priority: 2 })
   })
 
-  data.spouses.forEach(({ personAId, personBId }) => {
+  data.spouses.filter(({ status }) => status !== 'divorced' && status !== 'former').forEach(({ personAId, personBId }) => {
     const a = personById(data, personAId)
     const b = personById(data, personBId)
     add(a.id, { to: b.id, code: b.gender === 'male' ? 'h' : 'w', label: b.gender === 'male' ? '丈夫' : '妻子', priority: 0 })
@@ -56,7 +57,7 @@ export function buildGraph(data: FamilyData): Map<string, Edge[]> {
   })
 
   const childrenByParent = new Map<string, Set<string>>()
-  data.parents.forEach(({ parentId, childId }) => {
+  data.parents.filter(({ kind }) => kind !== 'step').forEach(({ parentId, childId }) => {
     if (!childrenByParent.has(parentId)) childrenByParent.set(parentId, new Set())
     childrenByParent.get(parentId)?.add(childId)
   })
@@ -110,7 +111,8 @@ export function calculateKinship(data: FamilyData, viewerId: string, targetId: s
   const seniorityId = (finalCode === 'h' || finalCode === 'w') && found.ids.length > 1
     ? found.ids.at(-2)!
     : targetId
-  const mandarin = narrowBySeniority(computed, viewer, personById(data, seniorityId))
+  const directFactLabel = found.codes.length === 1 && /^(养|继)/.test(found.labels[0]) ? found.labels[0] : null
+  const mandarin = directFactLabel ? [directFactLabel] : narrowBySeniority(computed, viewer, personById(data, seniorityId))
   const minnan = resolveMinnan(found.codes)
   const custom = data.customTerms?.find((item) => item.viewerId === viewerId && item.targetId === targetId)?.label.trim()
   return {

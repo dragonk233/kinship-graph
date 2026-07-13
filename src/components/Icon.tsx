@@ -1,4 +1,4 @@
-export type IconName = 'search' | 'home' | 'plus' | 'route' | 'person' | 'edit' | 'speaker' | 'trash' | 'ellipsis' | 'check' | 'filter' | 'undo' | 'pair' | 'shield' | 'archive' | 'info'
+export type IconName = 'search' | 'home' | 'plus' | 'route' | 'person' | 'edit' | 'speaker' | 'trash' | 'ellipsis' | 'check' | 'filter' | 'undo' | 'pair' | 'shield' | 'archive' | 'info' | 'calendar' | 'books' | 'history' | 'merge' | 'print'
 
 export function Icon({ name }: { name: IconName }) {
   const paths = {
@@ -18,6 +18,11 @@ export function Icon({ name }: { name: IconName }) {
     shield: <path d="M12 3 5 6v5c0 4.5 2.8 8 7 10 4.2-2 7-5.5 7-10V6l-7-3Z"/>,
     archive: <><path d="M4 7h16v13H4zM3 4h18v3H3zM9 11h6"/></>,
     info: <><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7h.01"/></>,
+    calendar: <><rect x="3" y="5" width="18" height="16" rx="1"/><path d="M7 3v4M17 3v4M3 10h18M8 14h2M14 14h2M8 18h2"/></>,
+    books: <><path d="M4 4h5v16H4zM10 4h5v16h-5zM16 5l4-1 2 15-4 1z"/></>,
+    history: <><path d="M4 12a8 8 0 1 0 2-5M4 4v5h5"/><path d="M12 8v5l3 2"/></>,
+    merge: <><path d="M5 4v4a4 4 0 0 0 4 4h10M5 20v-4a4 4 0 0 1 4-4M16 9l3 3-3 3"/></>,
+    print: <><path d="M7 8V3h10v5M7 17v4h10v-4M5 17H3v-7h18v7h-2M17 13H7v5h10z"/></>,
   }
   return <svg viewBox="0 0 24 24" aria-hidden="true">{paths[name]}</svg>
 }

@@ -28,15 +28,23 @@ export const legalFilterOptions: LegalFilterOption[] = [
 ]
 
 function parentIds(data: FamilyData, childId: string) {
-  return data.parents.filter((edge) => edge.childId === childId).map((edge) => edge.parentId)
+  return data.parents.filter((edge) => edge.childId === childId && edge.kind !== 'step').map((edge) => edge.parentId)
 }
 
 function childIds(data: FamilyData, parentId: string) {
-  return data.parents.filter((edge) => edge.parentId === parentId).map((edge) => edge.childId)
+  return data.parents.filter((edge) => edge.parentId === parentId && edge.kind !== 'step').map((edge) => edge.childId)
 }
 
 function spouseIds(data: FamilyData, personId: string) {
-  return data.spouses.flatMap((edge) => edge.personAId === personId ? [edge.personBId] : edge.personBId === personId ? [edge.personAId] : [])
+  return data.spouses.filter((edge) => edge.status !== 'divorced' && edge.status !== 'former').flatMap((edge) => edge.personAId === personId ? [edge.personBId] : edge.personBId === personId ? [edge.personAId] : [])
+}
+
+function biologicalParentIds(data: FamilyData, childId: string) {
+  return data.parents.filter((edge) => edge.childId === childId && (edge.kind ?? 'biological') === 'biological').map((edge) => edge.parentId)
+}
+
+function biologicalChildIds(data: FamilyData, parentId: string) {
+  return data.parents.filter((edge) => edge.parentId === parentId && (edge.kind ?? 'biological') === 'biological').map((edge) => edge.childId)
 }
 
 function walk(startId: string, next: (id: string) => string[]) {
@@ -62,7 +70,7 @@ function descendants(data: FamilyData, personId: string) {
 }
 
 function bloodDistances(data: FamilyData, personId: string) {
-  return walk(personId, (id) => [...parentIds(data, id), ...childIds(data, id)])
+  return walk(personId, (id) => [...biologicalParentIds(data, id), ...biologicalChildIds(data, id)])
 }
 
 function isSibling(data: FamilyData, viewerId: string, targetId: string) {
@@ -72,8 +80,8 @@ function isSibling(data: FamilyData, viewerId: string, targetId: string) {
 
 function isCollateralWithinThree(data: FamilyData, viewerId: string, targetId: string) {
   if (viewerId === targetId) return false
-  const viewerAncestors = ancestors(data, viewerId)
-  const targetAncestors = ancestors(data, targetId)
+  const viewerAncestors = walk(viewerId, (id) => biologicalParentIds(data, id))
+  const targetAncestors = walk(targetId, (id) => biologicalParentIds(data, id))
   if (viewerAncestors.has(targetId) || targetAncestors.has(viewerId)) return false
   return [...viewerAncestors].some(([ancestorId, viewerDepth]) => {
     const targetDepth = targetAncestors.get(ancestorId)
@@ -89,8 +97,8 @@ function isAffinal(data: FamilyData, viewerId: string, targetId: string) {
 
 export function matchesLegalFilter(data: FamilyData, viewerId: string, targetId: string, filterId: LegalFilterId) {
   if (viewerId === targetId) return false
-  const viewerAncestors = ancestors(data, viewerId)
-  const viewerDescendants = descendants(data, viewerId)
+  const viewerAncestors = walk(viewerId, (id) => biologicalParentIds(data, id))
+  const viewerDescendants = walk(viewerId, (id) => biologicalChildIds(data, id))
   const directBlood = viewerAncestors.has(targetId) || viewerDescendants.has(targetId)
   const collateralWithinThree = isCollateralWithinThree(data, viewerId, targetId)
   const parents = parentIds(data, viewerId)

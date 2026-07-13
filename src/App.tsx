@@ -1,11 +1,11 @@
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { initialFamily, showcaseFamily } from './data'
-import { clearFamilyData, loadFamilyData, parseFamilyBackup, saveFamilyData, serializeFamilyBackup, serializeFamilyMarkdown } from './familyStorage'
+import { createFamilyArchive, deleteFamilyArchive, getActiveArchiveId, listFamilyArchives, listFamilySnapshots, loadFamilyData, parseFamilyBackup, renameFamilyArchive, saveFamilyData, saveFamilySnapshot, serializeFamilyBackup, serializeFamilyMarkdown, setActiveArchiveId } from './familyStorage'
 import { calculateKinship } from './kinship'
 import { speakMinnan, stopMinnanSpeech } from './minnanSpeech'
 import { addBasicRelationship, ensureSpouseCoParents, removeBasicRelationship, resolvePersonOverlaps, suggestedBasicPlacement } from './relationEditor'
 import type { BasicRelation } from './relationEditor'
-import type { FamilyData, Gender, Person } from './types'
+import type { FamilyArchiveSummary, FamilyData, FamilySnapshot, Gender, LifeEvent, ParentRelationKind, Person, SpouseRelationStatus } from './types'
 import { birthYearFromDate, isBirthDate } from './lunar'
 import { inspectFamilyHealth } from './familyHealth'
 import { useRegisterSW } from 'virtual:pwa-register/react'
@@ -14,6 +14,10 @@ import { AppHeader } from './components/AppHeader'
 import { PersonDialogs } from './components/PersonDialogs'
 import { UtilityDialogs } from './components/UtilityDialogs'
 import { Workspace } from './components/Workspace'
+import { ArchiveDialogs, PrintableFamily } from './components/ArchiveDialogs'
+import { parseGedcom, serializeGedcom } from './gedcom'
+import { findDuplicatePeople, mergeFamilyData, mergePeople } from './familyMerge'
+import { serializeFamilySvg } from './familyPrint'
 
 const HOME_ID = 'me'
 const AVATAR_FEATURE_ENABLED = false
@@ -56,6 +60,17 @@ function App() {
   const [showRoster, setShowRoster] = useState(false)
   const [showAppStatus, setShowAppStatus] = useState(false)
   const [showInstallHelp, setShowInstallHelp] = useState(false)
+  const [showArchives, setShowArchives] = useState(false)
+  const [showHistory, setShowHistory] = useState(false)
+  const [showCalendar, setShowCalendar] = useState(false)
+  const [showDuplicates, setShowDuplicates] = useState(false)
+  const [showPrint, setShowPrint] = useState(false)
+  const [printLayout, setPrintLayout] = useState<'compact' | 'detailed'>('detailed')
+  const [printIncludeNotes, setPrintIncludeNotes] = useState(true)
+  const [timelinePersonId, setTimelinePersonId] = useState<string | null>(null)
+  const [currentArchiveId, setCurrentArchiveId] = useState(getActiveArchiveId)
+  const [archives, setArchives] = useState<FamilyArchiveSummary[]>([])
+  const [snapshots, setSnapshots] = useState<FamilySnapshot[]>([])
   const [relationEditId, setRelationEditId] = useState<string | null>(null)
   const [pairAId, setPairAId] = useState(HOME_ID)
   const [pairBId, setPairBId] = useState(HOME_ID)
@@ -85,8 +100,11 @@ function App() {
   const selected = data.people.find((p) => p.id === selectedId)!
   const result = calculateKinship(data, viewerId, selectedId)
   const healthIssues = useMemo(() => inspectFamilyHealth(data), [data])
+  const duplicateCandidates = useMemo(() => findDuplicatePeople(data), [data])
+  const currentArchiveName = archives.find((archive) => archive.id === currentArchiveId)?.name ?? '我的家谱'
 
-  const updateData = (updater: (current: FamilyData) => FamilyData) => {
+  const updateData = (updater: (current: FamilyData) => FamilyData, historyLabel = '修改家谱') => {
+    void saveFamilySnapshot(currentArchiveId, data, historyLabel)
     historyRef.current = [...historyRef.current.slice(-19), data]
     setCanUndo(true)
     setData(updater(data))
@@ -110,8 +128,14 @@ function App() {
 
   useEffect(() => {
     let active = true
-    loadFamilyData()
-      .then((stored) => {
+    listFamilyArchives()
+      .then(async (availableArchives) => {
+        if (!active) return
+        setArchives(availableArchives)
+        const archiveId = availableArchives.some((archive) => archive.id === currentArchiveId) ? currentArchiveId : availableArchives[0].id
+        setCurrentArchiveId(archiveId)
+        setActiveArchiveId(archiveId)
+        const stored = await loadFamilyData(archiveId)
         if (!active) return
         if (stored) {
           setData(ensureSpouseCoParents(resolvePersonOverlaps(stored)))
@@ -180,15 +204,15 @@ function App() {
     setSaveState('saving')
     let active = true
     const timer = window.setTimeout(() => {
-      saveFamilyData(data)
-        .then(() => { if (active) setSaveState('saved') })
+      saveFamilyData(data, currentArchiveId)
+        .then(async () => { if (active) { setSaveState('saved'); setArchives(await listFamilyArchives()) } })
         .catch(() => { if (active) setSaveState('error') })
     }, 250)
     return () => {
       active = false
       window.clearTimeout(timer)
     }
-  }, [data, storageReady])
+  }, [currentArchiveId, data, storageReady])
 
   const makeViewer = (id: string) => {
     setViewerId(id); setSelectedId(id)
@@ -271,6 +295,11 @@ function App() {
       gender: String(form.get('gender')) as Gender,
       birthYear: isBirthDate(birthDate) ? birthYearFromDate(birthDate) : selected.birthYear,
       ...(isBirthDate(birthDate) ? { birthDate } : {}),
+      aliases: String(form.get('aliases') || '').split(/[、,，]/).map((value) => value.trim()).filter(Boolean),
+      branch: String(form.get('branch') || '').trim(),
+      hometown: String(form.get('hometown') || '').trim(),
+      living: String(form.get('living')) !== 'false',
+      deathDate: isBirthDate(String(form.get('deathDate') || '')) ? String(form.get('deathDate')) : undefined,
       note: String(form.get('note') || '').trim(),
       ...(AVATAR_FEATURE_ENABLED ? { avatar: avatarDraft } : {}),
     }
@@ -281,6 +310,24 @@ function App() {
     setShowEdit(false)
     setToast(`已更新 ${name} 的人物资料`)
     window.setTimeout(() => setToast(''), 2200)
+  }
+
+  const updateParentRelation = (parentId: string, childId: string, kind: ParentRelationKind) => {
+    updateData((current) => ({ ...current, parents: current.parents.map((edge) => edge.parentId === parentId && edge.childId === childId ? { ...edge, kind } : edge) }), '调整亲子关系性质')
+  }
+
+  const updateSpouseRelation = (personAId: string, personBId: string, patch: { status?: SpouseRelationStatus; startDate?: string; endDate?: string }) => {
+    updateData((current) => ({ ...current, spouses: current.spouses.map((edge) => edge.personAId === personAId && edge.personBId === personBId ? { ...edge, ...patch } : edge) }), '调整婚姻关系资料')
+  }
+
+  const addLifeEvent = (personId: string, event: Omit<LifeEvent, 'id'>) => {
+    updateData((current) => ({ ...current, people: current.people.map((person) => person.id === personId ? { ...person, events: [...(person.events ?? []), { ...event, id: `event-${Date.now()}` }] } : person) }), '添加人物生平事件')
+    setToast('生平事件已加入时间线')
+    window.setTimeout(() => setToast(''), 2200)
+  }
+
+  const deleteLifeEvent = (personId: string, eventId: string) => {
+    updateData((current) => ({ ...current, people: current.people.map((person) => person.id === personId ? { ...person, events: person.events?.filter((event) => event.id !== eventId) } : person) }), '删除人物生平事件')
   }
 
   const editDirectRelations = (event: FormEvent<HTMLFormElement>) => {
@@ -446,6 +493,36 @@ function App() {
     window.setTimeout(() => setToast(''), 2200)
   }
 
+  const exportGedcom = async () => {
+    const filename = `${currentArchiveName}-${new Date().toISOString().slice(0, 10)}.ged`
+    const result = await shareOrDownload(serializeGedcom(data), 'text/plain;charset=utf-8', filename)
+    if (result !== 'cancelled') {
+      setToast(result === 'shared' ? 'GEDCOM 家谱已发送到系统分享' : 'GEDCOM 家谱已导出')
+      window.setTimeout(() => setToast(''), 2200)
+    }
+  }
+
+  const exportSvg = async () => {
+    const result = await shareOrDownload(serializeFamilySvg(data, currentArchiveName), 'image/svg+xml;charset=utf-8', `${currentArchiveName}-${new Date().toISOString().slice(0, 10)}.svg`)
+    if (result !== 'cancelled') { setToast(result === 'shared' ? 'SVG 图谱已发送到系统分享' : 'SVG 图谱已导出'); window.setTimeout(() => setToast(''), 2200) }
+  }
+
+  const importGedcom = async (file?: File) => {
+    if (!file) return
+    if (file.size > 5 * 1024 * 1024) { setToast('GEDCOM 文件不能超过 5MB'); window.setTimeout(() => setToast(''), 2400); return }
+    try {
+      const imported = parseGedcom(await file.text())
+      updateData((current) => mergeFamilyData(current, imported), '导入 GEDCOM 前')
+      setShowBackup(false)
+      setShowDuplicates(true)
+      setToast(`已导入 ${imported.people.length} 位人物，请检查重复人物`)
+      window.setTimeout(() => setToast(''), 3000)
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : '无法读取 GEDCOM 文件')
+      window.setTimeout(() => setToast(''), 2800)
+    }
+  }
+
   const installApp = async () => {
     if (installPrompt) {
       await installPrompt.prompt()
@@ -479,9 +556,65 @@ function App() {
     }
   }
 
+  const refreshHistory = async () => setSnapshots(await listFamilySnapshots(currentArchiveId))
+
+  const createArchive = async (name: string) => {
+    const summary = await createFamilyArchive(name, initialFamily)
+    setArchives(await listFamilyArchives())
+    await switchArchive(summary.id)
+  }
+
+  const switchArchive = async (id: string) => {
+    const stored = await loadFamilyData(id)
+    if (!stored) return
+    setActiveArchiveId(id)
+    setCurrentArchiveId(id)
+    setData(ensureSpouseCoParents(resolvePersonOverlaps(stored)))
+    const fallback = stored.people.some((person) => person.id === HOME_ID) ? HOME_ID : stored.people[0].id
+    setViewerId(fallback); setSelectedId(fallback); setQuery('')
+    historyRef.current = []; setCanUndo(false); setShowArchives(false)
+    setToast(`已打开 ${archives.find((archive) => archive.id === id)?.name ?? '家谱'}`)
+    window.setTimeout(() => setToast(''), 2200)
+  }
+
+  const renameArchive = async (id: string, name: string) => {
+    await renameFamilyArchive(id, name)
+    setArchives(await listFamilyArchives())
+  }
+
+  const removeArchive = async (id: string) => {
+    const archive = archives.find((item) => item.id === id)
+    if (!archive) return
+    await deleteFamilyArchive(id)
+    const remaining = await listFamilyArchives()
+    setArchives(remaining)
+    if (id === currentArchiveId) await switchArchive(remaining[0].id)
+  }
+
+  const restoreSnapshot = (snapshot: FamilySnapshot) => {
+    updateData(() => snapshot.data, '恢复历史版本前')
+    setViewerId(snapshot.data.people.some((person) => person.id === HOME_ID) ? HOME_ID : snapshot.data.people[0].id)
+    setSelectedId(snapshot.data.people.some((person) => person.id === HOME_ID) ? HOME_ID : snapshot.data.people[0].id)
+    setShowHistory(false)
+    setToast('历史版本已恢复，恢复前状态也已保留')
+    window.setTimeout(() => setToast(''), 2600)
+  }
+
+  const mergeDuplicate = (keepId: string, removeId: string) => {
+    updateData((current) => mergePeople(current, keepId, removeId), '合并重复人物前')
+    if (viewerId === removeId) setViewerId(keepId)
+    if (selectedId === removeId) setSelectedId(keepId)
+    setToast('人物资料与关系已合并')
+    window.setTimeout(() => setToast(''), 2200)
+  }
+
+  const selectCalendarPerson = (id: string) => {
+    setSelectedId(id); setMobileView('detail'); setShowCalendar(false)
+  }
+
   const resetFamily = async () => {
     try {
-      await clearFamilyData()
+      await saveFamilySnapshot(currentArchiveId, data, '清空整份家谱前')
       historyRef.current = []
       setCanUndo(false)
       setData(initialFamily)
@@ -524,17 +657,19 @@ function App() {
   }
 
   return <div className="app-shell">
-    <AppHeader viewer={viewer} isHomeViewer={viewerId === HOME_ID} canReturnHome={viewerId !== HOME_ID && data.people.some((person) => person.id === HOME_ID)} saveState={saveState} mobileToolsOpen={mobileToolsOpen} canUndo={canUndo} healthIssueCount={healthIssues.length} isStandalone={isStandalone} onToggleTools={() => setMobileToolsOpen((current) => !current)} onCloseTools={() => setMobileToolsOpen(false)} onReturnHome={() => makeViewer(HOME_ID)} onUndo={undo} onPair={() => { setPairAId(viewerId); setPairBId(selectedId === viewerId ? data.people.find((person) => person.id !== viewerId)?.id ?? viewerId : selectedId); setShowPair(true) }} onHealth={() => setShowHealth(true)} onBackup={() => setShowBackup(true)} onInstall={() => void installApp()} onStatus={() => { setShowAppStatus(true); void refreshStorageStatus() }} onShowcase={() => setShowShowcase(true)} onReset={() => setShowReset(true)}/>
+    <AppHeader viewer={viewer} archiveName={currentArchiveName} isHomeViewer={viewerId === HOME_ID} canReturnHome={viewerId !== HOME_ID && data.people.some((person) => person.id === HOME_ID)} saveState={saveState} mobileToolsOpen={mobileToolsOpen} canUndo={canUndo} healthIssueCount={healthIssues.length} isStandalone={isStandalone} onToggleTools={() => setMobileToolsOpen((current) => !current)} onCloseTools={() => setMobileToolsOpen(false)} onReturnHome={() => makeViewer(HOME_ID)} onUndo={undo} onPair={() => { setPairAId(viewerId); setPairBId(selectedId === viewerId ? data.people.find((person) => person.id !== viewerId)?.id ?? viewerId : selectedId); setShowPair(true) }} onCalendar={() => setShowCalendar(true)} onArchives={() => setShowArchives(true)} onHistory={() => { void refreshHistory(); setShowHistory(true) }} onDuplicates={() => setShowDuplicates(true)} onPrint={() => setShowPrint(true)} onHealth={() => setShowHealth(true)} onBackup={() => setShowBackup(true)} onInstall={() => void installApp()} onStatus={() => { setShowAppStatus(true); void refreshStorageStatus() }} onShowcase={() => setShowShowcase(true)} onReset={() => setShowReset(true)}/>
 
     {shouldRemindBackup && <aside className="backup-reminder" role="status"><span><strong>给这份家谱留一份本地备份</strong><small>{backedUpAt ? `上次备份：${formatStoredDate(backedUpAt)}` : `已经记录 ${data.people.length} 位亲人，尚未导出恢复文件`}</small></span><button type="button" onClick={() => setShowBackup(true)}>现在备份</button><button className="reminder-dismiss" type="button" aria-label="暂时关闭备份提醒" onClick={() => setBackupReminderDismissed(true)}>×</button></aside>}
     {needRefresh && <aside className="update-reminder" role="status"><span><strong>亲族图谱已有新版本</strong><small>家谱数据会继续保存在本机</small></span><button type="button" onClick={() => void updateServiceWorker(true)}>重新加载</button><button className="reminder-dismiss" type="button" aria-label="稍后更新" onClick={() => setNeedRefresh(false)}>×</button></aside>}
 
-    <Workspace data={data} viewerId={viewerId} selectedId={selectedId} query={query} mobileView={mobileView} speaking={speaking} onQueryChange={setQuery} onMobileViewChange={setMobileView} onSelect={setSelectedId} onMakeViewer={makeViewer} onAdd={openAdd} onCanvasEdit={openCanvasEdit} onDelete={setDeleteTargetId} onRoster={() => setShowRoster(true)} onEditProfile={openEdit} onSaveCustomTerm={saveCustomTerm} onSpeak={() => void playMinnan()} onEditRelations={setRelationEditId}/>
+    <Workspace data={data} viewerId={viewerId} selectedId={selectedId} query={query} mobileView={mobileView} speaking={speaking} onQueryChange={setQuery} onMobileViewChange={setMobileView} onSelect={setSelectedId} onMakeViewer={makeViewer} onAdd={openAdd} onCanvasEdit={openCanvasEdit} onDelete={setDeleteTargetId} onRoster={() => setShowRoster(true)} onEditProfile={openEdit} onSaveCustomTerm={saveCustomTerm} onSpeak={() => void playMinnan()} onEditRelations={setRelationEditId} onTimeline={setTimelinePersonId}/>
 
     <MobileNavigation view={mobileView} peopleCount={data.people.length} onChange={setMobileView}/>
 
-    <PersonDialogs data={data} viewerId={viewerId} selectedId={selectedId} showAdd={showAdd} showRelations={showRelations} showEdit={showEdit} showRoster={showRoster} relationEditId={relationEditId} avatarDraft={avatarDraft} onCloseAdd={() => setShowAdd(false)} onCloseRelations={() => setShowRelations(false)} onCloseEdit={() => setShowEdit(false)} onCloseRoster={() => setShowRoster(false)} onCloseRelationEditor={() => setRelationEditId(null)} onAddPerson={addPerson} onEditPerson={editPerson} onEditRoster={editRoster} onEditDirectRelations={editDirectRelations} onRemoveDirectRelation={removeDirectRelation} onUploadAvatar={uploadAvatar} onAvatarDraftChange={setAvatarDraft} onOpenRelationEditor={setRelationEditId}/>
-    <UtilityDialogs data={data} showBackup={showBackup} showAppStatus={showAppStatus} showInstallHelp={showInstallHelp} showReset={showReset} showShowcase={showShowcase} showPair={showPair} showHealth={showHealth} deleteTarget={deleteTarget} modifiedAt={modifiedAt} backedUpAt={backedUpAt} online={online} isStandalone={isStandalone} storagePersistent={storagePersistent} storageUsage={storageUsage} needRefresh={needRefresh} pairAId={pairAId} pairBId={pairBId} healthIssues={healthIssues} onCloseBackup={() => setShowBackup(false)} onCloseAppStatus={() => setShowAppStatus(false)} onCloseInstallHelp={() => setShowInstallHelp(false)} onCloseReset={() => setShowReset(false)} onCloseShowcase={() => setShowShowcase(false)} onClosePair={() => setShowPair(false)} onCloseHealth={() => setShowHealth(false)} onCloseDelete={() => setDeleteTargetId(null)} onExportBackup={() => void exportBackup()} onExportMarkdown={() => void exportMarkdown()} onImportBackup={(file) => void importBackup(file)} onInstall={() => void installApp()} onOpenBackupFromStatus={() => { setShowAppStatus(false); setShowBackup(true) }} onUpdate={() => void updateServiceWorker(true)} onDeletePerson={deletePerson} onReset={() => void resetFamily()} onLoadShowcase={loadShowcase} onPairAChange={setPairAId} onPairBChange={setPairBId}/>
+    <PersonDialogs data={data} viewerId={viewerId} selectedId={selectedId} showAdd={showAdd} showRelations={showRelations} showEdit={showEdit} showRoster={showRoster} relationEditId={relationEditId} avatarDraft={avatarDraft} onCloseAdd={() => setShowAdd(false)} onCloseRelations={() => setShowRelations(false)} onCloseEdit={() => setShowEdit(false)} onCloseRoster={() => setShowRoster(false)} onCloseRelationEditor={() => setRelationEditId(null)} onAddPerson={addPerson} onEditPerson={editPerson} onEditRoster={editRoster} onEditDirectRelations={editDirectRelations} onRemoveDirectRelation={removeDirectRelation} onUpdateParentRelation={updateParentRelation} onUpdateSpouseRelation={updateSpouseRelation} onUploadAvatar={uploadAvatar} onAvatarDraftChange={setAvatarDraft} onOpenRelationEditor={setRelationEditId}/>
+    <UtilityDialogs data={data} showBackup={showBackup} showAppStatus={showAppStatus} showInstallHelp={showInstallHelp} showReset={showReset} showShowcase={showShowcase} showPair={showPair} showHealth={showHealth} deleteTarget={deleteTarget} modifiedAt={modifiedAt} backedUpAt={backedUpAt} online={online} isStandalone={isStandalone} storagePersistent={storagePersistent} storageUsage={storageUsage} needRefresh={needRefresh} pairAId={pairAId} pairBId={pairBId} healthIssues={healthIssues} onCloseBackup={() => setShowBackup(false)} onCloseAppStatus={() => setShowAppStatus(false)} onCloseInstallHelp={() => setShowInstallHelp(false)} onCloseReset={() => setShowReset(false)} onCloseShowcase={() => setShowShowcase(false)} onClosePair={() => setShowPair(false)} onCloseHealth={() => setShowHealth(false)} onCloseDelete={() => setDeleteTargetId(null)} onExportBackup={() => void exportBackup()} onExportMarkdown={() => void exportMarkdown()} onExportGedcom={() => void exportGedcom()} onImportBackup={(file) => void importBackup(file)} onImportGedcom={(file) => void importGedcom(file)} onInstall={() => void installApp()} onOpenBackupFromStatus={() => { setShowAppStatus(false); setShowBackup(true) }} onUpdate={() => void updateServiceWorker(true)} onDeletePerson={deletePerson} onReset={() => void resetFamily()} onLoadShowcase={loadShowcase} onPairAChange={setPairAId} onPairBChange={setPairBId}/>
+    <ArchiveDialogs data={data} currentArchiveId={currentArchiveId} archives={archives} snapshots={snapshots} showArchives={showArchives} showHistory={showHistory} showCalendar={showCalendar} showDuplicates={showDuplicates} showPrint={showPrint} printLayout={printLayout} printIncludeNotes={printIncludeNotes} timelinePersonId={timelinePersonId} onCloseArchives={() => setShowArchives(false)} onCloseHistory={() => setShowHistory(false)} onCloseCalendar={() => setShowCalendar(false)} onCloseDuplicates={() => setShowDuplicates(false)} onClosePrint={() => setShowPrint(false)} onCloseTimeline={() => setTimelinePersonId(null)} onCreateArchive={(name) => void createArchive(name)} onSwitchArchive={(id) => void switchArchive(id)} onRenameArchive={(id, name) => void renameArchive(id, name)} onDeleteArchive={(id) => void removeArchive(id)} onRestoreSnapshot={restoreSnapshot} onSelectCalendarPerson={selectCalendarPerson} duplicateCandidates={duplicateCandidates} onMergeDuplicate={mergeDuplicate} onAddLifeEvent={addLifeEvent} onDeleteLifeEvent={deleteLifeEvent} onPrintLayoutChange={setPrintLayout} onPrintIncludeNotesChange={setPrintIncludeNotes} onPrint={() => { setShowPrint(false); window.setTimeout(() => window.print(), 0) }} onExportSvg={() => void exportSvg()}/>
+    <PrintableFamily data={data} archiveName={currentArchiveName} layout={printLayout} includeNotes={printIncludeNotes}/>
     {toast && <div className="toast"><span className="mini-seal">我</span>{toast}</div>}
   </div>
 }

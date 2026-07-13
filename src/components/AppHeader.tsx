@@ -6,8 +6,9 @@ import { useCompactInteraction } from './useCompactInteraction'
 
 export type SaveState = 'loading' | 'saving' | 'saved' | 'error'
 
-export function AppHeader({ viewer, isHomeViewer, canReturnHome, saveState, mobileToolsOpen, canUndo, healthIssueCount, isStandalone, onToggleTools, onCloseTools, onReturnHome, onUndo, onPair, onHealth, onBackup, onInstall, onStatus, onShowcase, onReset }: {
+export function AppHeader({ viewer, archiveName, isHomeViewer, canReturnHome, saveState, mobileToolsOpen, canUndo, healthIssueCount, isStandalone, onToggleTools, onCloseTools, onReturnHome, onUndo, onPair, onCalendar, onArchives, onHistory, onDuplicates, onPrint, onHealth, onBackup, onInstall, onStatus, onShowcase, onReset }: {
   viewer: Person
+  archiveName: string
   isHomeViewer: boolean
   canReturnHome: boolean
   saveState: SaveState
@@ -20,6 +21,11 @@ export function AppHeader({ viewer, isHomeViewer, canReturnHome, saveState, mobi
   onReturnHome: () => void
   onUndo: () => void
   onPair: () => void
+  onCalendar: () => void
+  onArchives: () => void
+  onHistory: () => void
+  onDuplicates: () => void
+  onPrint: () => void
   onHealth: () => void
   onBackup: () => void
   onInstall: () => void
@@ -34,10 +40,15 @@ export function AppHeader({ viewer, isHomeViewer, canReturnHome, saveState, mobi
     {canReturnHome && <button className="text-button" onClick={onReturnHome}><Icon name="home"/><span>回到我</span></button>}
     <button className="backup-button" onClick={onUndo} disabled={!canUndo}><Icon name="undo"/><span>撤销</span></button>
     <button className="backup-button" onClick={onPair}><Icon name="pair"/><span>两人关系</span></button>
+    <button className="backup-button" onClick={onCalendar}><Icon name="calendar"/><span>家事历</span></button>
     <button className={`backup-button ${healthIssueCount ? 'has-issues' : ''}`} onClick={onHealth}><Icon name="shield"/><span>检查{healthIssueCount ? ` · ${healthIssueCount}` : ''}</span></button>
     <button className="backup-button" onClick={onBackup}><Icon name="archive"/><span>备份</span></button>
   </>
   const secondaryActions = <>
+    <button className="backup-button" onClick={onArchives}><Icon name="books"/><span>家谱书架</span></button>
+    <button className="backup-button" onClick={onHistory}><Icon name="history"/><span>历史版本</span></button>
+    <button className="backup-button" onClick={onDuplicates}><Icon name="merge"/><span>重复人物</span></button>
+    <button className="backup-button" onClick={onPrint}><Icon name="print"/><span>打印族谱</span></button>
     {!isStandalone && <button className="backup-button" onClick={onInstall}><Icon name="plus"/><span>安装到桌面</span></button>}
     <button className="backup-button" onClick={onStatus}><Icon name="info"/><span>应用状态</span></button>
     <button className="showcase-button" onClick={onShowcase}><Icon name="plus"/><span>生成示例</span></button>
@@ -46,7 +57,7 @@ export function AppHeader({ viewer, isHomeViewer, canReturnHome, saveState, mobi
   </>
   const overlayActions = <div className="header-action-list" onClick={onCloseTools}>{compact && primaryActions}{secondaryActions}</div>
   return <header className="topbar">
-    <div className="brand"><span className="brand-seal">亲</span><div><strong>亲族图谱</strong><small>称呼从关系里自然生长</small></div></div>
+    <div className="brand"><span className="brand-seal">亲</span><div><strong>亲族图谱</strong><small>{archiveName}</small></div></div>
     <div className="viewpoint-chip"><span>当前主视角</span><strong>{viewer.name}</strong><em>{isHomeViewer ? '本人' : '代入视角'}</em></div>
     <div className={`header-tools ${mobileToolsOpen ? 'open' : ''}`}>
       {!compact && <div className="header-actions">{primaryActions}</div>}

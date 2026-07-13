@@ -49,7 +49,7 @@ describe('compactFamilyData', () => {
     expect(parseFamilyBackup(serialized)).toEqual(compactFamilyData(data))
   })
 
-  it('round-trips trimmed family-specific terms in version 2 backups', () => {
+  it('round-trips trimmed family-specific terms in version 3 backups', () => {
     const data: FamilyData = {
       people: [
         { id: 'me', name: '王晓明', gender: 'male', birthYear: 1999, generation: 2, x: 10, y: 20 },
@@ -58,11 +58,11 @@ describe('compactFamilyData', () => {
       parents: [], spouses: [], customTerms: [{ viewerId: 'me', targetId: 'uncle', label: '  阿舅  ' }],
     }
     const serialized = serializeFamilyBackup(data)
-    expect(JSON.parse(serialized).version).toBe(2)
+    expect(JSON.parse(serialized).version).toBe(3)
     expect(parseFamilyBackup(serialized).customTerms?.[0].label).toBe('阿舅')
   })
 
-  it('accepts old backups and drops the retired branch field', () => {
+  it('accepts old backups and preserves a branch field that is supported again', () => {
     const legacy = JSON.stringify({
       version: 1,
       data: {
@@ -72,7 +72,20 @@ describe('compactFamilyData', () => {
       },
     })
 
-    expect(parseFamilyBackup(legacy).people[0]).not.toHaveProperty('branch')
+    expect(parseFamilyBackup(legacy).people[0].branch).toBe('本家')
+  })
+
+  it('round-trips life facts and typed relationships without media', () => {
+    const data: FamilyData = {
+      people: [
+        { id: 'mother', name: '林秀英', aliases: ['阿英'], gender: 'female', birthYear: 1972, birthDate: '1972-02-03', hometown: '泉州', branch: '母系林氏', generation: 1, x: 0, y: 0 },
+        { id: 'me', name: '王晓明', gender: 'male', birthYear: 1999, generation: 2, x: 10, y: 20, events: [{ id: 'e1', type: 'residence', title: '迁居厦门', date: '2010-06-01' }] },
+      ],
+      parents: [{ parentId: 'mother', childId: 'me', kind: 'adoptive' }],
+      spouses: [{ personAId: 'mother', personBId: 'me', status: 'former', startDate: '1990-01-01', endDate: '1991-01-01' }],
+    }
+
+    expect(parseFamilyBackup(serializeFamilyBackup(data))).toEqual(compactFamilyData(data))
   })
 
   it('rejects relationships that reference missing people', () => {

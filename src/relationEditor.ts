@@ -158,7 +158,7 @@ export function suggestedBasicPlacement(data: FamilyData, anchorId: string, rela
  */
 export function ensureSpouseCoParents(data: FamilyData): FamilyData {
   const spousesByPerson = new Map<string, string[]>()
-  data.spouses.forEach(({ personAId, personBId }) => {
+  data.spouses.filter(({ status }) => status !== 'divorced' && status !== 'former').forEach(({ personAId, personBId }) => {
     spousesByPerson.set(personAId, [...(spousesByPerson.get(personAId) ?? []), personBId])
     spousesByPerson.set(personBId, [...(spousesByPerson.get(personBId) ?? []), personAId])
   })

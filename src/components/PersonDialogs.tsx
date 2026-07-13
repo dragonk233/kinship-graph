@@ -1,12 +1,12 @@
 import type { FormEvent } from 'react'
-import type { FamilyData } from '../types'
+import type { FamilyData, ParentRelationKind, SpouseRelationStatus } from '../types'
 import { Icon } from './Icon'
 import { Avatar, BirthdayField } from './PersonFields'
 import { RelationshipComposer, RosterRelationshipCell } from './RelationshipFields'
 
 const AVATAR_FEATURE_ENABLED = false
 
-export function PersonDialogs({ data, viewerId, selectedId, showAdd, showRelations, showEdit, showRoster, relationEditId, avatarDraft, onCloseAdd, onCloseRelations, onCloseEdit, onCloseRoster, onCloseRelationEditor, onAddPerson, onEditPerson, onEditRoster, onEditDirectRelations, onRemoveDirectRelation, onUploadAvatar, onAvatarDraftChange, onOpenRelationEditor }: {
+export function PersonDialogs({ data, viewerId, selectedId, showAdd, showRelations, showEdit, showRoster, relationEditId, avatarDraft, onCloseAdd, onCloseRelations, onCloseEdit, onCloseRoster, onCloseRelationEditor, onAddPerson, onEditPerson, onEditRoster, onEditDirectRelations, onRemoveDirectRelation, onUpdateParentRelation, onUpdateSpouseRelation, onUploadAvatar, onAvatarDraftChange, onOpenRelationEditor }: {
   data: FamilyData
   viewerId: string
   selectedId: string
@@ -26,6 +26,8 @@ export function PersonDialogs({ data, viewerId, selectedId, showAdd, showRelatio
   onEditRoster: (event: FormEvent<HTMLFormElement>) => void
   onEditDirectRelations: (event: FormEvent<HTMLFormElement>) => void
   onRemoveDirectRelation: (type: 'parent' | 'spouse', firstId: string, secondId: string) => void
+  onUpdateParentRelation: (parentId: string, childId: string, kind: ParentRelationKind) => void
+  onUpdateSpouseRelation: (personAId: string, personBId: string, patch: { status?: SpouseRelationStatus; startDate?: string; endDate?: string }) => void
   onUploadAvatar: (file?: File) => void
   onAvatarDraftChange: (value?: string) => void
   onOpenRelationEditor: (id: string) => void
@@ -47,8 +49,8 @@ export function PersonDialogs({ data, viewerId, selectedId, showAdd, showRelatio
     {showRelations && <div className="modal-backdrop" onMouseDown={onCloseRelations}><section className="relations-modal" role="dialog" aria-modal="true" aria-labelledby="relations-title" onMouseDown={(event) => event.stopPropagation()}>
       <div><span className="eyebrow">关系维护</span><h2 id="relations-title">{selected.name} 的直接关系</h2><p>这里只显示家谱中实际保存的基础连接；移除连接不会删除人物。</p></div>
       <div className="direct-relations">
-        {directParents.map((item) => { const otherId = item.parentId === selected.id ? item.childId : item.parentId; const other = data.people.find((person) => person.id === otherId)!; const label = item.parentId === selected.id ? `${other.name}的父母` : `${other.name}的子女`; return <div key={`${item.parentId}-${item.childId}`}><span><strong>{other.name}</strong><small>{label}</small></span><button type="button" onClick={() => onRemoveDirectRelation('parent', item.parentId, item.childId)}>移除</button></div> })}
-        {directSpouses.map((item) => { const otherId = item.personAId === selected.id ? item.personBId : item.personAId; const other = data.people.find((person) => person.id === otherId)!; return <div key={`${item.personAId}-${item.personBId}`}><span><strong>{other.name}</strong><small>配偶</small></span><button type="button" onClick={() => onRemoveDirectRelation('spouse', item.personAId, item.personBId)}>移除</button></div> })}
+        {directParents.map((item) => { const otherId = item.parentId === selected.id ? item.childId : item.parentId; const other = data.people.find((person) => person.id === otherId)!; const label = item.parentId === selected.id ? `${other.name}的父母` : `${other.name}的子女`; return <div className="relation-fact-row" key={`${item.parentId}-${item.childId}`}><span><strong>{other.name}</strong><small>{label}</small></span><label>关系性质<select value={item.kind ?? 'biological'} onChange={(event) => onUpdateParentRelation(item.parentId, item.childId, event.target.value as ParentRelationKind)}><option value="biological">亲生</option><option value="adoptive">收养</option><option value="step">继亲</option></select></label><button type="button" onClick={() => onRemoveDirectRelation('parent', item.parentId, item.childId)}>移除</button></div> })}
+        {directSpouses.map((item) => { const otherId = item.personAId === selected.id ? item.personBId : item.personAId; const other = data.people.find((person) => person.id === otherId)!; return <div className="relation-fact-row spouse-fact-row" key={`${item.personAId}-${item.personBId}`}><span><strong>{other.name}</strong><small>婚姻关系</small></span><label>状态<select value={item.status ?? 'married'} onChange={(event) => onUpdateSpouseRelation(item.personAId, item.personBId, { status: event.target.value as SpouseRelationStatus })}><option value="married">婚姻中</option><option value="divorced">已离异</option><option value="widowed">丧偶</option><option value="former">曾为配偶</option></select></label><label>开始<input type="date" value={item.startDate ?? ''} onChange={(event) => onUpdateSpouseRelation(item.personAId, item.personBId, { startDate: event.target.value || undefined })}/></label><label>结束<input type="date" value={item.endDate ?? ''} onChange={(event) => onUpdateSpouseRelation(item.personAId, item.personBId, { endDate: event.target.value || undefined })}/></label><button type="button" onClick={() => onRemoveDirectRelation('spouse', item.personAId, item.personBId)}>移除</button></div> })}
         {!directParents.length && !directSpouses.length && <div className="empty-relations">这个人物暂时没有直接关系</div>}
       </div>
       <div className="modal-actions"><button type="button" onClick={onCloseRelations}>完成</button></div>
@@ -59,6 +61,9 @@ export function PersonDialogs({ data, viewerId, selectedId, showAdd, showRelatio
       {AVATAR_FEATURE_ENABLED && <div className="avatar-editor"><Avatar person={{ ...selected, avatar: avatarDraft }} size="large"/><div className="avatar-editor-copy"><strong>人物头像</strong><small>支持 JPG、PNG、WebP，文件不超过 5MB</small><div className="avatar-editor-actions"><label className="upload-avatar-button">{avatarDraft ? '更换图片' : '上传图片'}<input type="file" accept="image/*" onChange={(event) => { onUploadAvatar(event.target.files?.[0]); event.currentTarget.value = '' }}/></label>{avatarDraft && <button type="button" onClick={() => onAvatarDraftChange(undefined)}>移除头像</button>}</div></div></div>}
       <label>姓名<input name="name" autoFocus defaultValue={selected.name} placeholder="请输入真实姓名" required/></label>
       <div className="form-row"><label>性别<select name="gender" defaultValue={selected.gender}><option value="male">男性</option><option value="female">女性</option></select></label><BirthdayField defaultValue={selected.birthDate}/></div>
+      <div className="form-row"><label>别名 / 乳名<input name="aliases" defaultValue={selected.aliases?.join('、') ?? ''} placeholder="用顿号分隔"/></label><label>所属支系<input name="branch" defaultValue={selected.branch ?? ''} placeholder="例如：长房、母系林氏"/></label></div>
+      <div className="form-row"><label>籍贯<input name="hometown" defaultValue={selected.hometown ?? ''} placeholder="城市、村落或祖籍"/></label><label>人物状态<select name="living" defaultValue={selected.living === false ? 'false' : 'true'}><option value="true">在世</option><option value="false">已故</option></select></label></div>
+      <label>逝世日期<input name="deathDate" type="date" defaultValue={selected.deathDate ?? ''}/></label>
       <label>人物备注<textarea name="note" rows={3} defaultValue={selected.note ?? ''} placeholder="籍贯、小名、家庭记忆等"/></label>
       <button className="inline-relation-button" type="button" onClick={() => onOpenRelationEditor(selected.id)}><Icon name="route"/><span><strong>添加或调整关系</strong><small>选择一位支点人物，再说明两人的基础关系</small></span><i>›</i></button>
       <div className="modal-actions"><button type="button" onClick={onCloseEdit}>取消</button><button className="primary-button" type="submit">保存修改</button></div>

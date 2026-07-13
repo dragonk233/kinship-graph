@@ -11,7 +11,7 @@ function formatStoredDate(value: string | null) {
   return new Intl.DateTimeFormat('zh-CN', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(new Date(value))
 }
 
-export function UtilityDialogs({ data, showBackup, showAppStatus, showInstallHelp, showReset, showShowcase, showPair, showHealth, deleteTarget, modifiedAt, backedUpAt, online, isStandalone, storagePersistent, storageUsage, needRefresh, pairAId, pairBId, healthIssues, onCloseBackup, onCloseAppStatus, onCloseInstallHelp, onCloseReset, onCloseShowcase, onClosePair, onCloseHealth, onCloseDelete, onExportBackup, onExportMarkdown, onImportBackup, onInstall, onOpenBackupFromStatus, onUpdate, onDeletePerson, onReset, onLoadShowcase, onPairAChange, onPairBChange }: {
+export function UtilityDialogs({ data, showBackup, showAppStatus, showInstallHelp, showReset, showShowcase, showPair, showHealth, deleteTarget, modifiedAt, backedUpAt, online, isStandalone, storagePersistent, storageUsage, needRefresh, pairAId, pairBId, healthIssues, onCloseBackup, onCloseAppStatus, onCloseInstallHelp, onCloseReset, onCloseShowcase, onClosePair, onCloseHealth, onCloseDelete, onExportBackup, onExportMarkdown, onExportGedcom, onImportBackup, onImportGedcom, onInstall, onOpenBackupFromStatus, onUpdate, onDeletePerson, onReset, onLoadShowcase, onPairAChange, onPairBChange }: {
   data: FamilyData
   showBackup: boolean
   showAppStatus: boolean
@@ -41,7 +41,9 @@ export function UtilityDialogs({ data, showBackup, showAppStatus, showInstallHel
   onCloseDelete: () => void
   onExportBackup: () => void
   onExportMarkdown: () => void
+  onExportGedcom: () => void
   onImportBackup: (file?: File) => void
+  onImportGedcom: (file?: File) => void
   onInstall: () => void
   onOpenBackupFromStatus: () => void
   onUpdate: () => void
@@ -57,7 +59,7 @@ export function UtilityDialogs({ data, showBackup, showAppStatus, showInstallHel
   return <>
     {showBackup && <div className="modal-backdrop" onMouseDown={onCloseBackup}><section className="backup-modal" role="dialog" aria-modal="true" aria-labelledby="backup-title" onMouseDown={(event) => event.stopPropagation()}>
       <div><span className="eyebrow">本地档案</span><h2 id="backup-title">备份与恢复家谱</h2><p>数据只保存在当前浏览器。定期导出一份精简备份，可以在清理浏览器或更换设备后恢复。</p></div>
-      <div className="backup-options"><section><strong>导出 JSON 备份</strong><p>用于完整恢复家谱，不含头像和历史记录。</p><button type="button" onClick={onExportBackup}>导出或分享</button></section><section><strong>导出可读家谱</strong><p>下载或分享含 Mermaid 图和人物资料的 Markdown 文件。</p><button type="button" onClick={onExportMarkdown}>导出或分享</button></section><section><strong>从备份恢复</strong><p>导入会覆盖当前家谱，文件必须来自本应用且不超过 1MB。</p><label className="import-backup-button">选择备份文件<input type="file" accept="application/json,.json" onChange={(event) => { onImportBackup(event.target.files?.[0]); event.currentTarget.value = '' }}/></label></section></div>
+      <div className="backup-options"><section><strong>导出 JSON 备份</strong><p>用于完整恢复家谱，不含照片和历史记录。</p><button type="button" onClick={onExportBackup}>导出或分享</button></section><section><strong>导出可读家谱</strong><p>下载含 Mermaid 图和人物资料的 Markdown 文件。</p><button type="button" onClick={onExportMarkdown}>导出或分享</button></section><section><strong>GEDCOM 通用家谱</strong><p>可迁移到其他家谱软件，也可导入外部 GEDCOM。</p><div className="inline-file-actions"><button type="button" onClick={onExportGedcom}>导出 GEDCOM</button><label className="import-backup-button">导入并合并<input type="file" accept=".ged,.gedcom,text/plain" onChange={(event) => { onImportGedcom(event.target.files?.[0]); event.currentTarget.value = '' }}/></label></div></section><section><strong>从 JSON 恢复</strong><p>导入会覆盖当前家谱，文件必须来自本应用且不超过 1MB。</p><label className="import-backup-button">选择备份文件<input type="file" accept="application/json,.json" onChange={(event) => { onImportBackup(event.target.files?.[0]); event.currentTarget.value = '' }}/></label></section></div>
       <dl className="backup-meta"><div><dt>最近修改</dt><dd>{formatStoredDate(modifiedAt)}</dd></div><div><dt>最近备份</dt><dd>{formatStoredDate(backedUpAt)}</dd></div><div><dt>档案规模</dt><dd>{data.people.length} 人 · {data.parents.length + data.spouses.length} 条关系</dd></div></dl>
       <div className="modal-actions"><button type="button" onClick={onCloseBackup}>关闭</button></div>
     </section></div>}

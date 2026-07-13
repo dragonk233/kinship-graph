@@ -21,7 +21,7 @@ function useDismiss(open: boolean, onClose: () => void, surfaceRef: RefObject<HT
 }
 
 function focusFirst(surface: HTMLElement | null) {
-  window.requestAnimationFrame(() => surface?.querySelector<HTMLElement>('button:not(:disabled), [href], input:not(:disabled), [tabindex]:not([tabindex="-1"])')?.focus())
+  window.requestAnimationFrame(() => surface?.querySelector<HTMLElement>('button:not(:disabled):not(.sheet-handle), [href], input:not(:disabled), [tabindex]:not([tabindex="-1"])')?.focus())
 }
 
 export function AnchoredMenu({ open, anchor, onClose, children, label, className = '', reserved = {} }: {

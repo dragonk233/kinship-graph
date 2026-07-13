@@ -3,7 +3,7 @@ import { initialFamily, showcaseFamily } from './data'
 import { clearFamilyData, loadFamilyData, parseFamilyBackup, saveFamilyData, serializeFamilyBackup, serializeFamilyMarkdown } from './familyStorage'
 import { calculateKinship } from './kinship'
 import { hasMinnanRecording, speakMinnan, stopMinnanSpeech } from './minnanSpeech'
-import { addBasicRelationship, basicRelationshipPreview, ensureSpouseCoParents, removeBasicRelationship, resolvePersonOverlaps, suggestedBasicPlacement } from './relationEditor'
+import { addBasicRelationship, ensureSpouseCoParents, removeBasicRelationship, resolvePersonOverlaps, suggestedBasicPlacement } from './relationEditor'
 import type { BasicRelation } from './relationEditor'
 import type { FamilyData, Gender, Person } from './types'
 import { formatZodiac } from './zodiac'
@@ -122,24 +122,20 @@ function Avatar({ person, size }: { person: Person; size?: 'small' | 'large' }) 
 function RelationshipComposer({ data, subjectId, subjectName, defaultAnchorId }: { data: FamilyData; subjectId?: string; subjectName: string; defaultAnchorId?: string }) {
   const candidates = data.people.filter((person) => person.id !== subjectId)
   const [query, setQuery] = useState('')
+  const [open, setOpen] = useState(false)
   const [anchorId, setAnchorId] = useState(defaultAnchorId && candidates.some((person) => person.id === defaultAnchorId) ? defaultAnchorId : candidates[0]?.id ?? '')
   const [relation, setRelation] = useState<BasicRelation>('child')
   const filtered = candidates.filter((person) => person.name.includes(query)).sort((a, b) => query ? 0 : a.id === anchorId ? -1 : b.id === anchorId ? 1 : 0).slice(0, 12)
-  const options: { id: BasicRelation; label: string }[] = [
-    { id: 'parent', label: '父母' }, { id: 'child', label: '子女' }, { id: 'sibling', label: '亲兄弟姐妹' }, { id: 'spouse', label: '配偶' },
-  ]
+  const anchor = data.people.find((person) => person.id === anchorId)
   const anchorHasParents = data.parents.some((item) => item.childId === anchorId)
   return <div className="relationship-composer">
     <input type="hidden" name="anchorId" value={anchorId}/><input type="hidden" name="basicRelation" value={relation}/>
-    <section><div className="composer-step"><b>1</b><span><strong>选择支点人物</strong><small>当前人物要和谁建立关系</small></span></div>
-      <label className="anchor-search"><Icon name="search"/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索姓名"/></label>
-      <div className="anchor-list" role="radiogroup" aria-label="支点人物">{filtered.map((person) => <label key={person.id}><input type="radio" checked={anchorId === person.id} onChange={() => setAnchorId(person.id)}/><Avatar person={person} size="small"/><span><strong>{person.name}</strong><small>{person.birthYear} 年</small></span><i>{anchorId === person.id ? '✓' : ''}</i></label>)}{!filtered.length && <p>没有找到匹配人物</p>}</div>
-    </section>
-    <section><div className="composer-step"><b>2</b><span><strong>{subjectName} 是对方的</strong><small>只记录四种基础事实</small></span></div>
-      <div className="basic-relation-options">{options.map((option) => <label key={option.id} className={option.id === 'sibling' && !anchorHasParents ? 'disabled' : ''}><input type="radio" checked={relation === option.id} disabled={option.id === 'sibling' && !anchorHasParents} onChange={() => setRelation(option.id)}/><span>{option.label}</span></label>)}</div>
-      {relation === 'sibling' && !anchorHasParents && <p className="field-warning">所选人物还没有父母资料，暂时无法建立亲兄弟姐妹关系。</p>}
-    </section>
-    <div className="relation-preview"><span>将写入的基础关系</span><strong>{basicRelationshipPreview(data, subjectName, anchorId, relation)}</strong></div>
+    <span className="relationship-label">基础关系</span>
+    <div className="compact-relationship-row"><strong>{subjectName}</strong><span>是</span>
+      <div className="roster-anchor-select"><button type="button" onClick={() => setOpen((current) => !current)} aria-expanded={open}><span>{anchor?.name ?? '选择人物'}</span><i>⌄</i></button>{open && <div className="roster-anchor-menu"><label><Icon name="search"/><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索人物" autoFocus/></label>{filtered.map((person) => <button type="button" key={person.id} onClick={() => { setAnchorId(person.id); setOpen(false); setQuery('') }}><span>{person.name}</span>{person.id === anchorId && <i>✓</i>}</button>)}</div>}</div>
+      <span>的</span><select value={relation} onChange={(event) => setRelation(event.target.value as BasicRelation)} aria-label={`${subjectName}与支点人物的关系`}><option value="parent">父母</option><option value="child">子女</option><option value="sibling" disabled={!anchorHasParents}>亲兄弟姐妹</option><option value="spouse">配偶</option></select>
+    </div>
+    {relation === 'sibling' && !anchorHasParents && <p className="field-warning">所选人物还没有父母资料，暂时无法建立亲兄弟姐妹关系。</p>}
   </div>
 }
 

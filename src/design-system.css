@@ -38,6 +38,12 @@
   --radius-card: 8px;
   --radius-overlay: 10px;
   --shadow-overlay: 0 16px 44px rgba(54, 43, 31, .14);
+  --glass-control: rgba(250, 247, 240, .68);
+  --glass-control-strong: rgba(250, 247, 240, .82);
+  --glass-border: rgba(255, 255, 255, .52);
+  --glass-edge: rgba(59, 52, 42, .13);
+  --glass-shadow: 0 10px 30px rgba(54, 43, 31, .12), inset 0 1px 0 rgba(255, 255, 255, .58);
+  --glass-blur: 28px;
   --control-min-touch: 44px;
   --overlay-edge: 12px;
   --overlay-menu-width: 188px;

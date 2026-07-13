@@ -522,7 +522,7 @@ function Graph({ data, viewerId, selectedId, onSelect, onMakeViewer, onAdd, onEd
           style={{ left: person.x, top: person.y }}
         >
           <button type="button" className={`person-node ${isViewer ? 'viewer' : ''} ${isSelected ? 'selected' : ''} ${outsideRelationshipFocus ? 'relationship-muted' : ''} ${relationshipFocus && focusIds.has(person.id) ? 'relationship-focused' : ''} ${generationView !== null && !matchesGenerationView(person.generation) ? 'generation-faded' : ''} ${generationView !== null && matchesGenerationView(person.generation) ? 'generation-highlighted' : ''} ${filteredOut ? 'legal-filtered-out' : ''} ${legalFilter && matchedIds.has(person.id) ? 'legal-filter-match' : ''}`}
-            onClick={() => { onSelect(person.id); setOpenActionsId(null) }} onDoubleClick={() => { setOpenActionsId(null); onMakeViewer(person.id) }} aria-label={`${person.name}，${result.mandarin[0]}`} aria-expanded={openActionsId === person.id}>
+            onClick={() => { onSelect(person.id); setOpenActionsId(null) }} onDoubleClick={() => { setOpenActionsId(null); onEdit(person.id) }} aria-label={`${person.name}，${result.mandarin[0]}`} aria-expanded={openActionsId === person.id}>
             {isViewer && <span className="viewer-pin">我</span>}
             <Avatar person={person}/>
             <span className="node-copy"><strong>{person.name}</strong><small>{result.mandarin[0]}</small></span>
@@ -1108,7 +1108,6 @@ function App() {
           <div className="profile-copy"><span className="eyebrow">当前查看</span><h2>{selected.name}</h2><p>{birthdaySummary(selected)} · {formatZodiac(selected.birthYear)}</p>{selected.birthDate && <p className="lunar-birthday">农历：{formatLunarBirthday(selected.birthDate)}</p>}</div>
           <button className="edit-profile-button" onClick={openEdit} aria-label={`编辑${selected.name}的资料`}><Icon name="edit"/>编辑</button>
         </div>
-        {selected.id !== viewerId && <button className="mobile-viewpoint-button" type="button" onClick={() => { makeViewer(selected.id); setMobileView('graph') }}><Icon name="person"/><span><strong>以 {selected.name} 为主视角</strong><small>重新计算所有称呼并返回图谱</small></span></button>}
         <section className="term-block"><span className="eyebrow">现实中如何称呼</span><div className="main-term">{result.mandarin[0]}</div>{result.standardMandarin && <p>系统标准称呼：{result.standardMandarin.join('、')}</p>}{result.mandarin.length > 1 && <p>也可能称作：{result.mandarin.slice(1).join('、')}</p>}
           {selected.id !== viewerId && <form className="custom-term-form" onSubmit={saveCustomTerm} key={`${viewerId}-${selectedId}-${result.mandarin[0]}`}><label>我们家怎么叫<input name="customTerm" defaultValue={data.customTerms?.find((item) => item.viewerId === viewerId && item.targetId === selectedId)?.label ?? ''} placeholder={result.standardMandarin?.[0] ?? result.mandarin[0]}/></label><button type="submit">保存</button></form>}
         </section>
@@ -1159,9 +1158,7 @@ function App() {
       </div>
       <label>人物备注<textarea name="note" rows={3} defaultValue={selected.note ?? ''} placeholder="籍贯、小名、家庭记忆等"/></label>
       <button className="inline-relation-button" type="button" onClick={() => setRelationEditId(selected.id)}><Icon name="route"/><span><strong>添加或调整关系</strong><small>选择一位支点人物，再说明两人的基础关系</small></span><i>›</i></button>
-      <div className="modal-actions split-actions">
-        <button className="danger-button" type="button" disabled={data.people.length <= 1} title={data.people.length <= 1 ? '图谱中至少需要保留一个人物' : undefined} onClick={() => { setShowEdit(false); setDeleteTargetId(selected.id) }}><Icon name="trash"/>删除人物</button>
-        <span className="action-spacer"/>
+      <div className="modal-actions">
         <button type="button" onClick={() => setShowEdit(false)}>取消</button><button className="primary-button" type="submit">保存修改</button>
       </div>
     </form></div>}

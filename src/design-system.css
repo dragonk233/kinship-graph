@@ -1,0 +1,66 @@
+:root {
+  color-scheme: light;
+
+  --surface-canvas: #eee9de;
+  --surface-paper: #f5f1e8;
+  --surface-raised: #faf7f0;
+  --surface-inset: #ede8dc;
+
+  --text-primary: #28251f;
+  --text-secondary: #5e584e;
+  --text-tertiary: #888074;
+  --text-muted: #a39b90;
+
+  --border-soft: rgba(59, 52, 42, .08);
+  --border-default: rgba(59, 52, 42, .15);
+  --border-emphasis: rgba(59, 52, 42, .24);
+  --border-focus: rgba(165, 58, 43, .48);
+
+  --accent: #a53a2b;
+  --accent-strong: #812a20;
+  --accent-soft: rgba(165, 58, 43, .075);
+  --semantic-success: #64785a;
+  --semantic-warning: #8b6849;
+  --semantic-danger: #a53a2b;
+
+  --font-content: "Songti SC", "Noto Serif SC", "STSong", serif;
+  --font-interface: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Microsoft YaHei", sans-serif;
+  --font-data: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  --radius-control: 6px;
+  --radius-card: 8px;
+  --radius-overlay: 10px;
+  --shadow-overlay: 0 16px 44px rgba(54, 43, 31, .14);
+  --motion-fast: 140ms;
+  --motion-normal: 220ms;
+  --ease-out: cubic-bezier(.2, .8, .2, 1);
+
+  /* Compatibility aliases used by the existing feature styles. */
+  --paper: var(--surface-paper);
+  --paper-raised: var(--surface-raised);
+  --paper-inset: var(--surface-inset);
+  --ink: var(--text-primary);
+  --ink-2: var(--text-secondary);
+  --ink-3: var(--text-tertiary);
+  --line: var(--border-default);
+  --line-soft: var(--border-soft);
+  --cinnabar: var(--accent);
+  --cinnabar-dark: var(--accent-strong);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+  }
+}
+
